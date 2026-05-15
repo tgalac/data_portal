@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="hr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>NSBstat</title>
+  <style>
+    :root{
+      --blue:#d6001c;
+      --blue-2:#9b1b30;
+      --blue-3:#f1f2f4;
+      --cyan:#c9cdd2;
+      --red:#d6001c;
+      --ink:#17212f;
+      --muted:#667085;
+      --line:#d8dadd;
+      --bg:#f7f7f8;
+      --white:#fff;
+      --shadow:0 10px 30px rgba(70, 0, 20, .10);
+      --radius:18px;
+      --font: Inter, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:var(--font);color:var(--ink);background:var(--bg);line-height:1.45}
+    a{text-decoration:none;color:inherit}
+    .top-strip{background:var(--blue);color:#fff;font-size:14px}
+    .wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+    .top-strip .wrap{display:flex;align-items:center;justify-content:space-between;height:44px}
+    .brand{display:flex;align-items:center;gap:12px;font-weight:700;letter-spacing:.1px}
+    .logo-mark{width:34px;height:34px;border:2px solid #fff;border-radius:50%;display:grid;place-items:center;font-size:17px;font-weight:800}
+    .top-links{display:flex;align-items:center;gap:22px;opacity:.95}
+    .main-header{background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+    .main-header .wrap{display:flex;align-items:center;justify-content:space-between;height:74px}
+    .portal-title{display:flex;align-items:baseline;gap:10px}
+    .portal-title strong{font-size:28px;color:var(--blue);letter-spacing:-.4px}
+    .portal-title span{color:var(--muted);font-size:14px}
+    nav{display:flex;align-items:center;gap:28px;font-size:15px;font-weight:600;color:#203044}
+    nav a{padding:26px 0;border-bottom:3px solid transparent}
+    nav a.active{color:var(--blue-2);border-bottom-color:var(--cyan)}
+    .header-actions{display:flex;align-items:center;gap:12px}
+    .pill{border:1px solid var(--line);border-radius:999px;padding:8px 13px;background:#fff;font-weight:600;font-size:14px}
+    .hero{background:linear-gradient(120deg,#fff 0%,#fff 52%,#eeeeef 52%,#fafafa 100%);border-bottom:1px solid var(--line);overflow:hidden}
+    .hero .wrap{min-height:420px;display:grid;grid-template-columns:1.02fr .98fr;gap:30px;align-items:center;position:relative}
+    .eyebrow{display:inline-flex;align-items:center;gap:8px;color:var(--blue-2);font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:18px}
+    .eyebrow:before{content:"";width:34px;height:3px;background:var(--red);border-radius:99px}
+    h1{font-size:54px;line-height:1.02;margin:0 0 18px;color:var(--blue);letter-spacing:-1.4px}
+    .lead{font-size:19px;color:#475467;max-width:610px;margin:0 0 28px}
+    .searchbox{background:#fff;border:1px solid #d8dadd;border-radius:16px;box-shadow:var(--shadow);display:flex;align-items:center;gap:12px;padding:10px;max-width:650px}
+    .searchbox input{border:0;outline:0;flex:1;font-size:17px;padding:14px 10px;color:#1d2939}
+    .searchbox .icon{font-size:22px;color:var(--blue-2);padding-left:10px}
+    .searchbox button{border:0;background:var(--blue);color:#fff;border-radius:12px;padding:15px 24px;font-weight:800;font-size:15px;cursor:pointer}
+    .hero-art{height:350px;position:relative}
+    .network{position:absolute;inset:0}
+    .floating-card{position:absolute;background:#fff;border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);padding:18px 20px;min-width:210px}
+    .floating-card h3{margin:0;color:var(--blue);font-size:16px}
+    .floating-card p{margin:6px 0 0;color:var(--muted);font-size:13px}
+    .card-a{top:40px;right:42px}.card-b{left:20px;bottom:62px}.card-c{right:20px;bottom:22px}
+    .main{padding:44px 0 60px}
+    .section-title{display:flex;align-items:flex-end;justify-content:space-between;margin:18px 0 22px}
+    .section-title h2{margin:0;font-size:31px;color:#1d2939;letter-spacing:-.5px}
+    .section-title a{font-weight:700;color:var(--blue-2)}
+    .discovery-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-bottom:46px}
+    .tile{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:22px;box-shadow:0 4px 14px rgba(70,0,20,.05);min-height:156px;transition:.18s ease}
+    .tile:hover{transform:translateY(-2px);box-shadow:var(--shadow)}
+    .tile .kicker{font-size:13px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+    .tile h3{margin:12px 0 8px;color:var(--blue);font-size:20px}
+    .tile p{margin:0;color:#536171;font-size:15px}
+    .split{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:46px}
+    .panel{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:24px;box-shadow:0 4px 14px rgba(70,0,20,.05)}
+    .panel h2{margin:0 0 14px;font-size:26px;color:#1d2939}
+    .select-row{display:flex;gap:12px;margin-bottom:18px}
+    select{flex:1;padding:13px 14px;border:1px solid #d8dadd;border-radius:12px;background:#fff;font-size:15px;color:#344054}
+    .metric-list{display:grid;gap:12px}
+    .metric{display:flex;align-items:center;justify-content:space-between;border:1px solid #e2e8f0;border-radius:14px;padding:14px 16px;background:#fafafa}
+    .metric span{color:#475467}.metric strong{color:var(--blue);font-size:20px}
+    .dataset-list{display:grid;gap:12px}
+    .dataset{display:grid;grid-template-columns:auto 1fr auto;gap:13px;align-items:center;border-bottom:1px solid #e5e5e6;padding:13px 0}
+    .dataset:last-child{border-bottom:0}
+    .badge{background:var(--blue-3);color:var(--blue);border-radius:999px;padding:7px 10px;font-size:12px;font-weight:800}
+    .dataset h4{margin:0;font-size:16px;color:#24364b}.dataset p{margin:3px 0 0;color:var(--muted);font-size:13px}
+    .calendar{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:24px;margin-bottom:46px}
+    .tabs{display:flex;gap:10px;margin:12px 0 20px}.tabs button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:9px 16px;font-weight:700;color:#475467}.tabs button.active{background:var(--blue);color:#fff;border-color:var(--blue)}
+    .calendar-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}.date-card{border:1px solid #e2e8f0;border-radius:14px;padding:16px;background:#fafafa}.date-card .date{font-weight:800;color:var(--red);font-size:14px}.date-card h4{margin:9px 0 4px;color:#1f2d3d}.date-card p{margin:0;color:var(--muted);font-size:14px}
+    .help-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.help{background:linear-gradient(135deg,#fff,#f3f3f4);border:1px solid var(--line);border-radius:var(--radius);padding:24px}.help h3{margin:0 0 8px;color:var(--blue);font-size:22px}.help p{color:#536171;margin:0 0 18px}.link-button{display:inline-flex;border:1px solid var(--blue);border-radius:999px;padding:10px 16px;color:var(--blue);font-weight:800;background:#fff}
+    footer{background:var(--blue);color:#fff;margin-top:20px}.footer-inner{display:grid;grid-template-columns:1.2fr 2fr;gap:30px;padding:36px 28px}.footer-brand strong{font-size:28px;display:block}.footer-brand span{opacity:.85}.footer-links{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}.footer-links h4{margin:0 0 10px}.footer-links a{display:block;margin:7px 0;opacity:.85}.copyright{border-top:1px solid rgba(255,255,255,.18);padding:14px 28px;color:rgba(255,255,255,.75);font-size:13px}
+    @media(max-width:900px){.hero .wrap,.split,.help-grid,.footer-inner{grid-template-columns:1fr}.hero{background:#fff}.hero-art{height:260px}.discovery-grid,.calendar-grid{grid-template-columns:1fr}.main-header .wrap{height:auto;align-items:flex-start;gap:10px;padding-top:16px;padding-bottom:16px;flex-direction:column}nav{flex-wrap:wrap;gap:16px}h1{font-size:40px}.top-links{display:none}}
+  </style>
+</head>
+<body>
+  <div class="top-strip">
+    <div class="wrap">
+      <div class="brand"><div class="logo-mark">NSB</div><span>NSBstat PILOT</span></div>
+      <div class="top-links"><a href="#">NSB</a><a href="#">Kontakt</a><a href="#">Pristupačnost</a></div>
+    </div>
+  </div>
+
+  <header class="main-header">
+    <div class="wrap">
+      <div class="portal-title"><strong>NSBstat</strong><span>Statistički portal</span></div>
+      <nav aria-label="Main navigation">
+        <a class="active" href="#discover">Otkrij podatke</a>
+        <a href="#calendar">Kalendar</a>
+        <a href="#help">Pomoć</a>
+        <a href="#api">Programatski pristup (API)</a>
+      </nav>
+      <div class="header-actions"><a class="pill" href="#"> </a><a class="pill" href="#">HR</a></div>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="wrap">
+      <div>
+        <div class="eyebrow"> </div>
+        <h1>Statistički portal<br>NSB-a</h1>
+        <p class="lead">Pretraži, prikaži i skini sve podatke na jednom mjestu</p>
+        <form class="searchbox">
+          <span class="icon">⌕</span>
+          <input type="search" placeholder="Pretraži podatke, metapodatke i priopćenja" />
+          <button type="submit">Traži</button>
+        </form>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <svg class="network" viewBox="0 0 520 350" fill="none">
+          <path d="M35 280 C110 120 170 80 245 185 S395 240 485 65" stroke="#c9cdd2" stroke-width="3"/>
+          <path d="M80 90 L190 150 L295 78 L430 150" stroke="#e1e2e4" stroke-width="2"/>
+          <circle cx="80" cy="90" r="8" fill="#d6001c"/><circle cx="190" cy="150" r="8" fill="#c9cdd2"/><circle cx="295" cy="78" r="8" fill="#9b1b30"/><circle cx="430" cy="150" r="8" fill="#d6001c"/><circle cx="245" cy="185" r="9" fill="#c9cdd2"/><circle cx="485" cy="65" r="9" fill="#9b1b30"/>
+        </svg>
+        <div class="floating-card card-a"><h3>oko 5000 vremenskih serija</h3><p>Strukturirani podaci i metapodaci</p></div>
+        <div class="floating-card card-b"><h3>Grafovi & Tablice</h3><p>Vizualiziraj i usporedi pokazetelje</p></div>
+        <div class="floating-card card-c"><h3>API pristup</h3><p>Automatiziraj skidanje podataka</p></div>
+      </div>
+    </div>
+  </section>
+
+  <main class="main wrap">
+    <section id="discover">
+      <div class="section-title"><h2>Otkrij pokazatelje po temama</h2><a href="#"> </a></div>
+      <div class="discovery-grid">
+        <article class="tile"><div class="kicker">XLS SDMX</div><h3>Novac</h3><p>Novac i monetarni agregati</p></article>
+        <article class="tile"><div class="kicker">XLS SDMX</div><h3>Monetarne institucije</h3><p>Bilance monetarnih institucija</p></article>
+        <article class="tile"><div class="kicker"><a href="G tablice.xlsx" download>XLS</a> SDMX</div><h3>Kamatne stope</h3><p>Kamatne stope kreditnih institucija</p></article>
+        <article class="tile"><div class="kicker">XLS SDMX</div><h3>Vrijednosni papiri</h3><p>Izdanja i ulaganja u vrijednosnice</p></article>
+        <article class="tile"><div class="kicker">XLS SDMX</div><h3>Država</h3><p>Državne financije i dug</p></article>
+        <article class="tile"><div class="kicker">XLS SDMX</div><h3>Financijski računi</h3><p>Financijska imovina i obveze domaćih sektora</p></article>
+        <article class="tile"><div class="kicker">XLS SDMX</div><h3>Platna bilanca</h3><p>Financijske i nefinancijske transakcije s inozemstvom</p></article>
+        <article class="tile"><div class="kicker">XLS SDMX</div><h3>Inozemna ulaganja</h3><p>Financijski odnosi s inozemstvom</p></article>
+      </div>
+    </section>
+
+    <section class="calendar" id="calendar">
+      <div class="section-title"><h2>Kalendar statističkih objava</h2><a href="#">Cijeli kalendar →</a></div>
+      <div class="tabs"><button class="active">Aktualno</button><button>Najave</button><button>Priopćenja</button></div>
+      <div class="calendar-grid">
+        <article class="date-card"><div class="date">5. svibnja</div><h4>Predpredzadnja objava</h4><p>Predpredzadnja objava</p></article>
+        <article class="date-card"><div class="date">10. svibnja</div><h4>Predzadnja objava</h4><p>Predzadnja objava</p></article>
+        <article class="date-card"><div class="date">15. svibnja</div><h4>Zadnja objava</h4><p>Zadnja objava</p></article>
+      </div>
+    </section>
+
+    <section id="help">
+      <div class="section-title"><h2>Često postavljana pitanja (FAQ)</h2></div>
+      <div class="help-grid">
+        <article class="help"><h3>Npr. što su to "sektori"?</h3><p>Pročitaj informacije za korisnike statističkih podataka</p><a class="link-button" href="#">Pročitaj FAQ</a></article>
+        <article class="help"><h3>Kontaktiraj statistički tim NSB-a</h3><p>Pošalji poruku e-pošte sa svojim pitanjem ili komentarom</p><a class="link-button" href="#">Otvori obrazac za pisanje poruke</a></article>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap footer-inner">
+      <div class="footer-brand"><strong>NSBstat</strong><span>Statistički portal NSB-a</span></div>
+      <div class="footer-links">
+        <div><h4>Podaci</h4><a href="#">Teme</a><a href="#">Podaci</a><a href="#">Metapodaci</a></div>
+        <div><h4>Resursi</h4><a href="#">Priopćenja</a><a href="#">Kalendar</a><a href="#">API</a></div>
+        <div><h4>Pomoć</h4><a href="#">FAQ</a><a href="#">Rječnik</a><a href="#">Kontakt</a></div>
+      </div>
+    </div>
+    <div class="wrap copyright">NSBstat - PILOT</div>
+  </footer>
+</body>
+</html>
