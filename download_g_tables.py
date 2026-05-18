@@ -12,7 +12,8 @@ Značajke:
 - u list "Metodologija" upisuje tekst s HNB stranice počevši od retka koji počinje s "Metodologija"
 - svaki redak/odlomak metodologije ide u zaseban redak stupca A
 - redci koji počinju s "Metodologija" ili "Tablica G" su bold
-- stupac A na listu Metodologija širok je oko 120 points
+- prije svakog retka koji počinje s "Tablica G" dodaje se prazan red
+- stupac A na listu Metodologija širok je približno 700 px
 - u svim G listovima uključuje Wrap text za stupac B
 - prilagođava visinu redaka
 - uklanja boju kartica listova
@@ -21,7 +22,6 @@ Značajke:
 
 from __future__ import annotations
 
-import os
 import re
 import shutil
 import socket
@@ -224,6 +224,11 @@ def set_rows_optimal_height(sheet, first_row: int, last_row: int) -> None:
         pass
 
 
+def px_to_hundredths_mm(px: int, dpi: int = 96) -> int:
+    """LibreOffice column widths use 1/100 mm. 700 px at 96 DPI ≈ 18521."""
+    return round(px / dpi * 25.4 * 100)
+
+
 def make_workbook_with_libreoffice(
     xls_paths: dict[str, Path],
     methodology_text: str,
@@ -257,10 +262,8 @@ def make_workbook_with_libreoffice(
 
     set_gridlines_off(out_doc, methodology_sheet)
 
-    # Column A width: 120 points.
-    # LibreOffice UNO koristi 1/100 mm.
-    # 120 pt = 120 / 72 inch = 1.6667 inch = 42.333 mm = approx. 4233 in 1/100 mm.
-    methodology_sheet.Columns.getByName("A").Width = 4233
+    # Column A width: approximately 700 pixels.
+    methodology_sheet.Columns.getByName("A").Width = px_to_hundredths_mm(700)
 
     try:
         methodology_sheet.Columns.getByName("A").IsTextWrapped = True
@@ -273,8 +276,14 @@ def make_workbook_with_libreoffice(
         if line.strip()
     ]
 
-    for i, line in enumerate(methodology_lines):
-        cell = methodology_sheet.getCellByPosition(0, i)  # A1, A2, A3...
+    output_row = 0
+    for line in methodology_lines:
+        # Add an empty row immediately above each "Tablica G..." heading,
+        # except if it would be the first row in the sheet.
+        if line.startswith("Tablica G") and output_row > 0:
+            output_row += 1
+
+        cell = methodology_sheet.getCellByPosition(0, output_row)  # A1, A2, A3...
         cell.String = line
         cell.IsTextWrapped = True
         cell.CharFontName = "Arial"
@@ -283,7 +292,10 @@ def make_workbook_with_libreoffice(
         if line.startswith("Metodologija") or line.startswith("Tablica G"):
             cell.CharWeight = 150  # bold
 
-    set_rows_optimal_height(methodology_sheet, 0, max(len(methodology_lines) - 1, 0))
+        output_row += 1
+
+    if output_row > 0:
+        set_rows_optimal_height(methodology_sheet, 0, output_row - 1)
 
     # ------------------------------------------------------------------
     # Uvoz G tablica
@@ -326,7 +338,6 @@ def make_workbook_with_libreoffice(
                     used_range.EndRow,
                 )
             except Exception:
-                # Fallback ako used area ne uspije.
                 set_rows_optimal_height(imported_sheet, 0, 2000)
 
             position += 1
