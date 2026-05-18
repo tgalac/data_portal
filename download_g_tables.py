@@ -234,7 +234,7 @@ def make_workbook_with_libreoffice(
     out_doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, hidden)
     out_sheets = out_doc.Sheets
 
-    # Prvi list: Metodologija.
+# Prvi list: Metodologija.
 methodology_sheet = out_sheets.getByIndex(0)
 methodology_sheet.Name = "Metodologija"
 
@@ -250,46 +250,33 @@ except Exception:
 # 120 pt = 120 / 72 inch = 1.6667 inch = 42.333 mm = approx. 4233 in 1/100 mm.
 methodology_sheet.Columns.getByName("A").Width = 4233
 
-# Kopiraj metodološki tekst u ćeliju A1.
-cell_a1 = methodology_sheet.getCellByPosition(0, 0)
-cell_a1.String = methodology_text
-
-# Osnovno formatiranje ćelije A1.
-# Ovo ne može savršeno preslikati HTML source formatting, ali čuva tekst i retke
-# te daje Excelu normalan prikaz.
-cell_a1.IsTextWrapped = True
-cell_a1.CharFontName = "Arial"
-cell_a1.CharHeight = 10
-
-# Prvi redak metodologije učini bold.
-# LibreOffice cell rich text zna biti osjetljiv, pa je ovo u try bloku.
-try:
-    cursor = cell_a1.createTextCursor()
-    cursor.gotoStart(False)
-    first_newline = methodology_text.find("\n")
-
-    if first_newline != -1:
-        cursor.goRight(first_newline, True)
-    else:
-        cursor.gotoEnd(True)
-
-    cursor.CharWeight = 150  # bold
-except Exception:
-    pass
-
 # Wrap text za cijeli stupac A.
 try:
     methodology_sheet.Columns.getByName("A").IsTextWrapped = True
 except Exception:
     pass
 
+# Svaki odlomak / neprazni redak ide u zaseban redak stupca A.
+methodology_lines = [
+    line.strip()
+    for line in methodology_text.splitlines()
+    if line.strip()
+]
+
+for i, line in enumerate(methodology_lines):
+    cell = methodology_sheet.getCellByPosition(0, i)  # A1, A2, A3...
+    cell.String = line
+    cell.IsTextWrapped = True
+    cell.CharFontName = "Arial"
+    cell.CharHeight = 10
+
+    # Ako redak počinje s "Tablica G", cijeli redak ide u bold.
+    if line.startswith("Metodologija") or line.startswith("Tablica G"):
+        cell.CharWeight = 150  # bold
+
 # Autofit visine redaka na cijelom listu Metodologija.
 try:
-    cursor = methodology_sheet.createCursor()
-    cursor.gotoEndOfUsedArea(True)
-    used_range = cursor.RangeAddress
-
-    for r in range(used_range.StartRow, used_range.EndRow + 1):
+    for r in range(0, len(methodology_lines)):
         methodology_sheet.Rows.getByIndex(r).OptimalHeight = True
 except Exception:
     pass
