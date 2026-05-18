@@ -9,10 +9,14 @@ Značajke:
 - sam pronalazi aktualne HNB poveznice na stranici
 - svaki izvorni list kopira u zaseban list: G1, G2, G3, G5, G6
 - dodaje prvi list "Metodologija"
-- u list "Metodologija" dodaje text box s metodološkim tekstom sa stranice
+- u list "Metodologija" upisuje tekst s HNB stranice počevši od retka koji počinje s "Metodologija"
+- svaki redak/odlomak metodologije ide u zaseban redak stupca A
+- redci koji počinju s "Metodologija" ili "Tablica G" su bold
+- stupac A na listu Metodologija širok je oko 120 points
+- u svim G listovima uključuje Wrap text za stupac B
+- prilagođava visinu redaka
 - uklanja boju kartica listova
 - isključuje prikaz crta rešetke
-- koristi LibreOffice headless radi boljeg očuvanja izvornog formatiranja
 """
 
 from __future__ import annotations
@@ -28,10 +32,10 @@ import time
 import zipfile
 from pathlib import Path
 from urllib.parse import urljoin
+from xml.etree import ElementTree as ET
 
 import requests
 from bs4 import BeautifulSoup
-from xml.etree import ElementTree as ET
 
 
 HNB_PAGE_URL = (
@@ -64,7 +68,6 @@ def find_table_links(html: str, base_url: str) -> dict[str, str]:
         text = " ".join(a.get_text(" ", strip=True).split())
 
         for table in TABLES:
-            # Traži linkove čiji tekst počinje s "Tablica G1", "Tablica G2" itd.
             if re.search(rf"\bTablica\s+{table}\b", text, flags=re.IGNORECASE):
                 links[table] = urljoin(base_url, a["href"])
 
@@ -81,14 +84,12 @@ def find_table_links(html: str, base_url: str) -> dict[str, str]:
 def extract_methodology_text(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
 
-    # Ukloni skripte i stilove.
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
 
     raw_lines = soup.get_text("\n", strip=True).splitlines()
     lines = [line.strip() for line in raw_lines if line.strip()]
 
-    # Traži prvi red koji počinje s "Metodologija".
     start_index = None
     for i, line in enumerate(lines):
         if line.startswith("Metodologija"):
@@ -101,7 +102,6 @@ def extract_methodology_text(html: str) -> str:
             "Moguće je da je HNB promijenio strukturu stranice."
         )
 
-    # Tipični početak podnožja / kraja relevantnog sadržaja.
     end_markers = [
         "Skriveno",
         "HRVATSKA NARODNA BANKA",
@@ -116,8 +116,7 @@ def extract_methodology_text(html: str) -> str:
             end_index = i
             break
 
-    methodology_lines = lines[start_index:end_index]
-    methodology = "\n".join(methodology_lines).strip()
+    methodology = "\n".join(lines[start_index:end_index]).strip()
 
     if len(methodology) < 100:
         raise RuntimeError(
@@ -126,6 +125,7 @@ def extract_methodology_text(html: str) -> str:
         )
 
     return methodology
+
 
 def download_file(url: str, target_path: Path) -> None:
     headers = {
@@ -194,7 +194,6 @@ def start_libreoffice(port: int, user_profile_dir: Path) -> subprocess.Popen:
 
 
 def uno_property(name: str, value):
-    import uno
     from com.sun.star.beans import PropertyValue
 
     prop = PropertyValue()
@@ -207,6 +206,22 @@ def path_to_file_url(path: Path) -> str:
     import uno
 
     return uno.systemPathToFileUrl(str(path.resolve()))
+
+
+def set_gridlines_off(out_doc, sheet) -> None:
+    try:
+        out_doc.CurrentController.setActiveSheet(sheet)
+        out_doc.CurrentController.ShowGrid = False
+    except Exception:
+        pass
+
+
+def set_rows_optimal_height(sheet, first_row: int, last_row: int) -> None:
+    try:
+        for r in range(first_row, last_row + 1):
+            sheet.Rows.getByIndex(r).OptimalHeight = True
+    except Exception:
+        pass
 
 
 def make_workbook_with_libreoffice(
@@ -234,55 +249,47 @@ def make_workbook_with_libreoffice(
     out_doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, hidden)
     out_sheets = out_doc.Sheets
 
-# Prvi list: Metodologija.
-methodology_sheet = out_sheets.getByIndex(0)
-methodology_sheet.Name = "Metodologija"
+    # ------------------------------------------------------------------
+    # List Metodologija
+    # ------------------------------------------------------------------
+    methodology_sheet = out_sheets.getByIndex(0)
+    methodology_sheet.Name = "Metodologija"
 
-# Isključi gridlines na listu Metodologija.
-try:
-    out_doc.CurrentController.setActiveSheet(methodology_sheet)
-    out_doc.CurrentController.ShowGrid = False
-except Exception:
-    pass
+    set_gridlines_off(out_doc, methodology_sheet)
 
-# Column A width: 120 points.
-# LibreOffice UNO koristi 1/100 mm.
-# 120 pt = 120 / 72 inch = 1.6667 inch = 42.333 mm = approx. 4233 in 1/100 mm.
-methodology_sheet.Columns.getByName("A").Width = 4233
+    # Column A width: 120 points.
+    # LibreOffice UNO koristi 1/100 mm.
+    # 120 pt = 120 / 72 inch = 1.6667 inch = 42.333 mm = approx. 4233 in 1/100 mm.
+    methodology_sheet.Columns.getByName("A").Width = 4233
 
-# Wrap text za cijeli stupac A.
-try:
-    methodology_sheet.Columns.getByName("A").IsTextWrapped = True
-except Exception:
-    pass
+    try:
+        methodology_sheet.Columns.getByName("A").IsTextWrapped = True
+    except Exception:
+        pass
 
-# Svaki odlomak / neprazni redak ide u zaseban redak stupca A.
-methodology_lines = [
-    line.strip()
-    for line in methodology_text.splitlines()
-    if line.strip()
-]
+    methodology_lines = [
+        line.strip()
+        for line in methodology_text.splitlines()
+        if line.strip()
+    ]
 
-for i, line in enumerate(methodology_lines):
-    cell = methodology_sheet.getCellByPosition(0, i)  # A1, A2, A3...
-    cell.String = line
-    cell.IsTextWrapped = True
-    cell.CharFontName = "Arial"
-    cell.CharHeight = 10
+    for i, line in enumerate(methodology_lines):
+        cell = methodology_sheet.getCellByPosition(0, i)  # A1, A2, A3...
+        cell.String = line
+        cell.IsTextWrapped = True
+        cell.CharFontName = "Arial"
+        cell.CharHeight = 10
 
-    # Ako redak počinje s "Tablica G", cijeli redak ide u bold.
-    if line.startswith("Metodologija") or line.startswith("Tablica G"):
-        cell.CharWeight = 150  # bold
+        if line.startswith("Metodologija") or line.startswith("Tablica G"):
+            cell.CharWeight = 150  # bold
 
-# Autofit visine redaka na cijelom listu Metodologija.
-try:
-    for r in range(0, len(methodology_lines)):
-        methodology_sheet.Rows.getByIndex(r).OptimalHeight = True
-except Exception:
-    pass
+    set_rows_optimal_height(methodology_sheet, 0, max(len(methodology_lines) - 1, 0))
 
-    # Uvezi prvi list iz svake izvorne datoteke.
+    # ------------------------------------------------------------------
+    # Uvoz G tablica
+    # ------------------------------------------------------------------
     position = 1
+
     for table in TABLES:
         src_path = xls_paths[table]
         src_doc = desktop.loadComponentFromURL(path_to_file_url(src_path), "_blank", 0, hidden)
@@ -295,49 +302,39 @@ except Exception:
             imported_sheet = out_sheets.getByIndex(position)
             imported_sheet.Name = table
 
-            # Ukloni boju kartice lista, ako LibreOffice podržava svojstvo.
             try:
                 imported_sheet.TabColor = -1
             except Exception:
                 pass
 
-            # Isključi gridlines.
+            set_gridlines_off(out_doc, imported_sheet)
+
+            # Wrap text za stupac B.
             try:
-                out_doc.CurrentController.setActiveSheet(imported_sheet)
-                out_doc.CurrentController.ShowGrid = False
+                imported_sheet.Columns.getByName("B").IsTextWrapped = True
             except Exception:
                 pass
 
-            # Uključi Wrap text za stupac B.
-            try:
-                col_b_range = imported_sheet.Columns.getByName("B")
-                col_b_range.IsTextWrapped = True
-            except Exception:
-                pass
-
-            # Automatski prilagodi visinu redaka.
-            # Pokušaj najprije za sve korištene retke, a ako to ne uspije, za prvih 2000.
+            # Autofit visine redaka u korištenom području.
             try:
                 cursor = imported_sheet.createCursor()
                 cursor.gotoEndOfUsedArea(True)
                 used_range = cursor.RangeAddress
-                first_row = used_range.StartRow
-                last_row = used_range.EndRow
-
-                for r in range(first_row, last_row + 1):
-                    imported_sheet.Rows.getByIndex(r).OptimalHeight = True
+                set_rows_optimal_height(
+                    imported_sheet,
+                    used_range.StartRow,
+                    used_range.EndRow,
+                )
             except Exception:
-                try:
-                    for r in range(0, 2000):
-                        imported_sheet.Rows.getByIndex(r).OptimalHeight = True
-                except Exception:
-                    pass
+                # Fallback ako used area ne uspije.
+                set_rows_optimal_height(imported_sheet, 0, 2000)
 
             position += 1
+
         finally:
             src_doc.close(True)
 
-    # Još jednom prođi sve listove i isključi gridlines.
+    # Još jednom isključi gridlines na svim listovima.
     try:
         controller = out_doc.CurrentController
         for i in range(out_sheets.Count):
@@ -355,14 +352,12 @@ except Exception:
     out_doc.storeAsURL(path_to_file_url(output_path), store_props)
     out_doc.close(True)
 
+
 def patch_xlsx_sheet_xml(xlsx_path: Path) -> None:
     """
     Nakon što LibreOffice napravi XLSX, izravno se uređuju sheet XML datoteke:
     - uklanjaju se tabColor elementi
     - showGridLines se postavlja na 0
-
-    Ovo ne otvara i ponovno ne sprema workbook preko openpyxl-a, jer bi to moglo
-    izbaciti text box/drawing objekte.
     """
 
     ns = {"x": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
@@ -377,13 +372,11 @@ def patch_xlsx_sheet_xml(xlsx_path: Path) -> None:
             if re.match(r"xl/worksheets/sheet\d+\.xml$", item.filename):
                 root = ET.fromstring(data)
 
-                # Ukloni <tabColor .../> iz <sheetPr>.
                 sheet_pr = root.find("x:sheetPr", ns)
                 if sheet_pr is not None:
                     for tab_color in list(sheet_pr.findall("x:tabColor", ns)):
                         sheet_pr.remove(tab_color)
 
-                # Postavi showGridLines="0" na svim sheetView elementima.
                 for sheet_view in root.findall(".//x:sheetView", ns):
                     sheet_view.set("showGridLines", "0")
 
