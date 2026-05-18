@@ -85,18 +85,23 @@ def extract_methodology_text(html: str) -> str:
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
 
-    text = soup.get_text("\n", strip=True)
+    raw_lines = soup.get_text("\n", strip=True).splitlines()
+    lines = [line.strip() for line in raw_lines if line.strip()]
 
-    start_marker = "Tablica G1 Kamatne stope kreditnih institucija na depozite (novi poslovi)"
+    # Traži prvi red koji počinje s "Metodologija".
+    start_index = None
+    for i, line in enumerate(lines):
+        if line.startswith("Metodologija"):
+            start_index = i
+            break
 
-    start_pos = text.find(start_marker)
-    if start_pos == -1:
+    if start_index is None:
         raise RuntimeError(
-            "Nisam pronašao početak metodološkog teksta. "
-            "Moguće je da je HNB promijenio tekst ili strukturu stranice."
+            'Nisam pronašao redak koji počinje s "Metodologija". '
+            "Moguće je da je HNB promijenio strukturu stranice."
         )
 
-    # Kraj metodološkog teksta: pokušaj uhvatiti početak podnožja stranice.
+    # Tipični početak podnožja / kraja relevantnog sadržaja.
     end_markers = [
         "Skriveno",
         "HRVATSKA NARODNA BANKA",
@@ -105,17 +110,14 @@ def extract_methodology_text(html: str) -> str:
         "Pristupačnost",
     ]
 
-    end_positions = [
-        text.find(marker, start_pos)
-        for marker in end_markers
-        if text.find(marker, start_pos) != -1
-    ]
+    end_index = len(lines)
+    for i in range(start_index + 1, len(lines)):
+        if any(lines[i].startswith(marker) for marker in end_markers):
+            end_index = i
+            break
 
-    end_pos = min(end_positions) if end_positions else len(text)
-
-    methodology = text[start_pos:end_pos].strip()
-
-    methodology = re.sub(r"\n{3,}", "\n\n", methodology)
+    methodology_lines = lines[start_index:end_index]
+    methodology = "\n".join(methodology_lines).strip()
 
     if len(methodology) < 100:
         raise RuntimeError(
@@ -233,47 +235,64 @@ def make_workbook_with_libreoffice(
     out_sheets = out_doc.Sheets
 
     # Prvi list: Metodologija.
-    methodology_sheet = out_sheets.getByIndex(0)
-    methodology_sheet.Name = "Metodologija"
+methodology_sheet = out_sheets.getByIndex(0)
+methodology_sheet.Name = "Metodologija"
 
-    # Isključi gridlines na listu Metodologija.
-    try:
-        out_doc.CurrentController.setActiveSheet(methodology_sheet)
-        out_doc.CurrentController.ShowGrid = False
-    except Exception:
-        pass
+# Isključi gridlines na listu Metodologija.
+try:
+    out_doc.CurrentController.setActiveSheet(methodology_sheet)
+    out_doc.CurrentController.ShowGrid = False
+except Exception:
+    pass
 
-    # Malo proširi stupce radi čitljivosti.
-    methodology_sheet.Columns.getByName("A").Width = 800
-    methodology_sheet.Columns.getByName("B").Width = 22000
+# Column A width: 120 points.
+# LibreOffice UNO koristi 1/100 mm.
+# 120 pt = 120 / 72 inch = 1.6667 inch = 42.333 mm = approx. 4233 in 1/100 mm.
+methodology_sheet.Columns.getByName("A").Width = 4233
 
-    # Upis metodološkog teksta u obične ćelije, počevši od B2.
-    # Svaki neprazni redak iz HTML teksta ide u novi red.
-    methodology_lines = [
-        line.strip()
-        for line in methodology_text.splitlines()
-        if line.strip()
-    ]
+# Kopiraj metodološki tekst u ćeliju A1.
+cell_a1 = methodology_sheet.getCellByPosition(0, 0)
+cell_a1.String = methodology_text
 
-    start_row = 1  # B2 jer su indeksi 0-based: red 1 = Excel redak 2
-    col_b = 1      # B jer su indeksi 0-based: stupac 1 = Excel stupac B
+# Osnovno formatiranje ćelije A1.
+# Ovo ne može savršeno preslikati HTML source formatting, ali čuva tekst i retke
+# te daje Excelu normalan prikaz.
+cell_a1.IsTextWrapped = True
+cell_a1.CharFontName = "Arial"
+cell_a1.CharHeight = 10
 
-    for i, line in enumerate(methodology_lines):
-        cell = methodology_sheet.getCellByPosition(col_b, start_row + i)
-        cell.String = line
-        cell.IsTextWrapped = True
+# Prvi redak metodologije učini bold.
+# LibreOffice cell rich text zna biti osjetljiv, pa je ovo u try bloku.
+try:
+    cursor = cell_a1.createTextCursor()
+    cursor.gotoStart(False)
+    first_newline = methodology_text.find("\n")
 
-    # Formatiraj stupac B na Metodologiji.
-    methodology_col_b = methodology_sheet.Columns.getByName("B")
-    methodology_col_b.IsTextWrapped = True
+    if first_newline != -1:
+        cursor.goRight(first_newline, True)
+    else:
+        cursor.gotoEnd(True)
 
-    # Automatska visina redaka na Metodologiji.
-    try:
-        used_rows = methodology_sheet.Rows
-        for r in range(start_row, start_row + len(methodology_lines)):
-            used_rows.getByIndex(r).OptimalHeight = True
-    except Exception:
-        pass
+    cursor.CharWeight = 150  # bold
+except Exception:
+    pass
+
+# Wrap text za cijeli stupac A.
+try:
+    methodology_sheet.Columns.getByName("A").IsTextWrapped = True
+except Exception:
+    pass
+
+# Autofit visine redaka na cijelom listu Metodologija.
+try:
+    cursor = methodology_sheet.createCursor()
+    cursor.gotoEndOfUsedArea(True)
+    used_range = cursor.RangeAddress
+
+    for r in range(used_range.StartRow, used_range.EndRow + 1):
+        methodology_sheet.Rows.getByIndex(r).OptimalHeight = True
+except Exception:
+    pass
 
     # Uvezi prvi list iz svake izvorne datoteke.
     position = 1
