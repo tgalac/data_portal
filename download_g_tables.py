@@ -80,35 +80,50 @@ def find_table_links(html: str, base_url: str) -> dict[str, str]:
 
 def extract_methodology_text(html: str) -> str:
     soup = BeautifulSoup(html, "html.parser")
+
+    # Ukloni skripte i stilove.
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+
     text = soup.get_text("\n", strip=True)
 
-    heading = "Metodologija - Kamatne stope kreditnih institucija"
     start_marker = "Tablica G1 Kamatne stope kreditnih institucija na depozite (novi poslovi)"
 
-    heading_pos = text.find(heading)
-    if heading_pos == -1:
-        raise RuntimeError("Nisam pronašao naslov metodologije na HNB stranici.")
-
-    start_pos = text.find(start_marker, heading_pos)
+    start_pos = text.find(start_marker)
     if start_pos == -1:
-        raise RuntimeError("Nisam pronašao početak metodološkog teksta za Tablicu G1.")
+        raise RuntimeError(
+            "Nisam pronašao početak metodološkog teksta. "
+            "Moguće je da je HNB promijenio tekst ili strukturu stranice."
+        )
 
-    # Tipični početak podnožja HNB stranice.
-    end_candidates = [
-        text.find("Skriveno", start_pos),
-        text.find("HRVATSKA NARODNA BANKA", start_pos),
-        text.find("Trg hrvatskih velikana", start_pos),
+    # Kraj metodološkog teksta: pokušaj uhvatiti početak podnožja stranice.
+    end_markers = [
+        "Skriveno",
+        "HRVATSKA NARODNA BANKA",
+        "Trg hrvatskih velikana",
+        "Kontakt",
+        "Pristupačnost",
     ]
-    end_candidates = [x for x in end_candidates if x != -1]
 
-    end_pos = min(end_candidates) if end_candidates else len(text)
+    end_positions = [
+        text.find(marker, start_pos)
+        for marker in end_markers
+        if text.find(marker, start_pos) != -1
+    ]
+
+    end_pos = min(end_positions) if end_positions else len(text)
+
     methodology = text[start_pos:end_pos].strip()
 
-    # Malo očisti višestruke prazne retke, ali ne mijenja tekstualni sadržaj.
     methodology = re.sub(r"\n{3,}", "\n\n", methodology)
 
-    return methodology
+    if len(methodology) < 100:
+        raise RuntimeError(
+            "Metodološki tekst je pronađen, ali je neočekivano kratak. "
+            "Provjeri ekstrakciju HTML-a."
+        )
 
+    return methodology
 
 def download_file(url: str, target_path: Path) -> None:
     headers = {
@@ -199,7 +214,6 @@ def make_workbook_with_libreoffice(
     port: int,
 ) -> None:
     import uno
-    from com.sun.star.awt import Point, Size
 
     local_ctx = uno.getComponentContext()
     resolver = local_ctx.ServiceManager.createInstanceWithContext(
@@ -222,26 +236,46 @@ def make_workbook_with_libreoffice(
     methodology_sheet = out_sheets.getByIndex(0)
     methodology_sheet.Name = "Metodologija"
 
-    # Dodaj text box na list Metodologija.
-    text_shape = out_doc.createInstance("com.sun.star.drawing.TextShape")
-    text_shape.Position = Point(1000, 1000)       # 1/100 mm
-    text_shape.Size = Size(26000, 18000)          # 26 cm x 18 cm
-    text_shape.String = methodology_text
-
-    # Osnovno formatiranje text boxa.
+    # Isključi gridlines na listu Metodologija.
     try:
-        text_shape.TextAutoGrowHeight = True
-        text_shape.CharHeight = 9
-        text_shape.CharFontName = "Arial"
-        text_shape.FillStyle = 0  # none
+        out_doc.CurrentController.setActiveSheet(methodology_sheet)
+        out_doc.CurrentController.ShowGrid = False
     except Exception:
-        # Neka ne ruši skriptu ako neka LO verzija nema pojedino svojstvo.
         pass
 
-    methodology_sheet.DrawPage.add(text_shape)
+    # Malo proširi stupce radi čitljivosti.
+    methodology_sheet.Columns.getByName("A").Width = 800
+    methodology_sheet.Columns.getByName("B").Width = 22000
+
+    # Upis metodološkog teksta u obične ćelije, počevši od B2.
+    # Svaki neprazni redak iz HTML teksta ide u novi red.
+    methodology_lines = [
+        line.strip()
+        for line in methodology_text.splitlines()
+        if line.strip()
+    ]
+
+    start_row = 1  # B2 jer su indeksi 0-based: red 1 = Excel redak 2
+    col_b = 1      # B jer su indeksi 0-based: stupac 1 = Excel stupac B
+
+    for i, line in enumerate(methodology_lines):
+        cell = methodology_sheet.getCellByPosition(col_b, start_row + i)
+        cell.String = line
+        cell.IsTextWrapped = True
+
+    # Formatiraj stupac B na Metodologiji.
+    methodology_col_b = methodology_sheet.Columns.getByName("B")
+    methodology_col_b.IsTextWrapped = True
+
+    # Automatska visina redaka na Metodologiji.
+    try:
+        used_rows = methodology_sheet.Rows
+        for r in range(start_row, start_row + len(methodology_lines)):
+            used_rows.getByIndex(r).OptimalHeight = True
+    except Exception:
+        pass
 
     # Uvezi prvi list iz svake izvorne datoteke.
-    # LibreOffice importSheet bolje čuva formatiranje nego ručno kopiranje ćeliju po ćeliju.
     position = 1
     for table in TABLES:
         src_path = xls_paths[table]
@@ -255,19 +289,49 @@ def make_workbook_with_libreoffice(
             imported_sheet = out_sheets.getByIndex(position)
             imported_sheet.Name = table
 
-            # Pokušaj ukloniti boju kartice lista već u LibreOfficeu.
-            # Dodatno se čisti i izravno u XML-u nakon spremanja.
+            # Ukloni boju kartice lista, ako LibreOffice podržava svojstvo.
             try:
                 imported_sheet.TabColor = -1
             except Exception:
                 pass
 
+            # Isključi gridlines.
+            try:
+                out_doc.CurrentController.setActiveSheet(imported_sheet)
+                out_doc.CurrentController.ShowGrid = False
+            except Exception:
+                pass
+
+            # Uključi Wrap text za stupac B.
+            try:
+                col_b_range = imported_sheet.Columns.getByName("B")
+                col_b_range.IsTextWrapped = True
+            except Exception:
+                pass
+
+            # Automatski prilagodi visinu redaka.
+            # Pokušaj najprije za sve korištene retke, a ako to ne uspije, za prvih 2000.
+            try:
+                cursor = imported_sheet.createCursor()
+                cursor.gotoEndOfUsedArea(True)
+                used_range = cursor.RangeAddress
+                first_row = used_range.StartRow
+                last_row = used_range.EndRow
+
+                for r in range(first_row, last_row + 1):
+                    imported_sheet.Rows.getByIndex(r).OptimalHeight = True
+            except Exception:
+                try:
+                    for r in range(0, 2000):
+                        imported_sheet.Rows.getByIndex(r).OptimalHeight = True
+                except Exception:
+                    pass
+
             position += 1
         finally:
             src_doc.close(True)
 
-    # Pokušaj isključiti gridlines po listovima preko kontrolera.
-    # Dodatno se čisti i izravno u XML-u nakon spremanja.
+    # Još jednom prođi sve listove i isključi gridlines.
     try:
         controller = out_doc.CurrentController
         for i in range(out_sheets.Count):
@@ -284,7 +348,6 @@ def make_workbook_with_libreoffice(
 
     out_doc.storeAsURL(path_to_file_url(output_path), store_props)
     out_doc.close(True)
-
 
 def patch_xlsx_sheet_xml(xlsx_path: Path) -> None:
     """
