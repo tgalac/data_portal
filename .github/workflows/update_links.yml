@@ -35,10 +35,14 @@ jobs:
     - name: Stage Data File
       run: git add data.json
 
-    - name: Commit Changes
+    - name: Commit and Push Changes
       run: |
-        # Only commits if git detects an actual change in data.json
-        git diff-index --quiet HEAD || git commit -m "Automated update of HNB data"
+        # Check if there are modified files staged for commit
+        if ! git diff-index --quiet HEAD --; then
+          echo "Changes detected in data.json. Committing..."
+          git commit -m "Automated update of HNB data"
+          git push origin main
+        else
+          echo "No new changes detected in data.json. Skipping commit."
+        fi
 
-    - name: Push Changes
-      run: git push origin main
