@@ -25,7 +25,7 @@ jobs:
         pip install requests beautifulsoup4
 
     - name: Run script
-      run: python scrape.py
+      run: python SP_last3.py
 
     - name: Configure Git
       run: |
