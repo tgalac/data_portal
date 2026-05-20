@@ -33,13 +33,13 @@ jobs:
         git config --global user.email 'github-actions[bot]@://github.com'
 
     - name: Stage Data File
-      run: git add data.json
+      run: git add SPlast3.json
 
     - name: Commit and Push Changes
       run: |
         # Check if there are modified files staged for commit
         if ! git diff-index --quiet HEAD --; then
-          echo "Changes detected in data.json. Committing..."
+          echo "Changes detected in SPlast3.json. Committing..."
           git commit -m "Automated update of HNB data"
           git push origin main
         else
