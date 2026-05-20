@@ -30,7 +30,7 @@ def scrape_hnb():
             })
             
         # Write results to a static file inside the repo
-        with open("data.json", "w", encoding="utf-8") as f:
+        with open("SPlast3.json", "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=4)
             
         print("Successfully updated data.json!")
