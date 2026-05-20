@@ -2,18 +2,14 @@ name: Scheduled HNB Scraper
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Runs daily at midnight UTC
-  workflow_dispatch: # Allows manual runs via the Actions tab
-
-env:
-  # Explicitly forces GitHub Actions to utilize Node 24 to clear warnings
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    - cron: '0 0 * * *'
+  workflow_dispatch:
 
 jobs:
   scrape-and-commit:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Essential permission to allow saving data.json
+      contents: write
 
     steps:
     - name: Checkout repository
@@ -31,17 +27,18 @@ jobs:
     - name: Run script
       run: python scrape.py
 
-    - name: Commit and Push changes
+    - name: Configure Git
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@://github.com'
-        git add data.json
-        
-        # Safe explicit conditional block to replace the risky || shorthand
-        if [ -n "$(git status --porcelain)" ]; then
-          echo "Changes detected. Committing updates..."
-          git commit -m "Automated update of HNB data"
-          git push
-        else
-          echo "No new statistical data found. Skipping commit."
-        fi
+
+    - name: Stage Data File
+      run: git add data.json
+
+    - name: Commit Changes
+      run: |
+        # Only commits if git detects an actual change in data.json
+        git diff-index --quiet HEAD || git commit -m "Automated update of HNB data"
+
+    - name: Push Changes
+      run: git push origin main
