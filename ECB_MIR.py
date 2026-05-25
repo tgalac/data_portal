@@ -44,15 +44,6 @@ if __name__ == "__main__":
     mir_hr_df = get_ecb_mir_croatia()
 
     if mir_hr_df is not None:
-        # Display basic metadata about what we just pulled
-        print(f"\nTotal rows retrieved: {len(mir_hr_df)}")
-        print(
-            f"Unique time series found: {mir_hr_df['KEY'].nunique() if 'KEY' in mir_hr_df.columns else 'N/A'}"
-        )
-
-        # Show a sneak peek of the dataframe
-        print("\nFirst 5 rows:")
-        print(mir_hr_df.head())
-
-        # Optional: Save it locally to a CSV file
-        # mir_hr_df.to_csv("ecb_mir_croatia_dataset.csv", index=False)
+      
+        # Save it locally to a CSV file
+        mir_hr_df.to_csv("ecb_mir_croatia_dataset.csv", index=False)
