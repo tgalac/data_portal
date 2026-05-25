@@ -1,0 +1,55 @@
+name: Hourly/Daily ECB Data Update
+
+on:
+  schedule:
+    # Runs at 00:00 UTC every day (Midnight)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allows you to manually trigger the workflow from the GitHub Actions tab
+
+jobs:
+  update-csv:
+    runs-index: ubuntu-latest
+    permissions:
+      # Gives the action permission to write/commit back to the repository
+      contents: write
+
+    steps:
+    # 1. Check out your repository code
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    # 2. Set up Python environment
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip' # Speeds up subsequent runs by caching dependencies
+
+    # 3. Install Python dependencies
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pandas requests
+
+    # 4. Run your Python script
+    # Make sure 'your_script_name.py' matches your actual Python filename.
+    # Ensure your script contains: mir_hr_df.to_csv("ecb_mir_croatia_dataset.csv", index=False)
+    - name: Run ECB Data Fetcher
+      run: python your_script_name.py 
+
+    # 5. Commit and push the generated CSV file back to the repository
+    - name: Commit and Push Changes
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        
+        # Stage the CSV file (adjust filename if yours is different)
+        git add ecb_mir_croatia_dataset.csv
+        
+        # Only commit and push if the file actually changed to avoid empty commit errors
+        if git diff --staged --quiet; then
+          echo "No changes detected in the dataset. Skipping commit."
+        else
+          git commit -m "Automated Sync: Update ECB MIR Croatia Dataset [skip ci]"
+          git push
+        fi
