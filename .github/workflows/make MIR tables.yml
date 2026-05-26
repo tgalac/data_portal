@@ -8,7 +8,7 @@ on:
 
 jobs:
   update-csv:
-    runs-index: ubuntu-latest
+    runs-on: ubuntu-latest
     permissions:
       # Gives the action permission to write/commit back to the repository
       contents: write
