@@ -35,7 +35,7 @@ jobs:
     # Make sure 'your_script_name.py' matches your actual Python filename.
     # Ensure your script contains: mir_hr_df.to_csv("ecb_mir_croatia_dataset.csv", index=False)
     - name: Run ECB Data Fetcher
-      run: python your_script_name.py 
+      run: python download_MIR_data.py 
 
     # 5. Commit and push the generated CSV file back to the repository
     - name: Commit and Push Changes
@@ -44,7 +44,7 @@ jobs:
         git config --local user.name "github-actions[bot]"
         
         # Stage the CSV file (adjust filename if yours is different)
-        git add ecb_mir_croatia_dataset.csv
+        git add MIR_podaci_HR.csv
         
         # Only commit and push if the file actually changed to avoid empty commit errors
         if git diff --staged --quiet; then
