@@ -11,7 +11,7 @@ def get_ecb_mir_croatia():
     # 2. Construct the wildcard key according to your parameters
     # Dimensions: Freq(M).Area(HR).Type.Instrument.Maturity.Amount.Coverage.Sector.Currency(EUR).Suffix(N)
     # Leaving intermediate dimensions blank acts as a wildcard to pull ALL variations
-    series_key = "M.HR......EUR.N"
+    series_key = "M.HR.......EUR.N"
 
     # 3. Request data specifically in CSV format for easy Pandas integration
     headers = {"Accept": "text/csv"}
