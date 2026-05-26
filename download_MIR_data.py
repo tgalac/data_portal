@@ -46,4 +46,4 @@ if __name__ == "__main__":
     if mir_hr_df is not None:
       
         # Save it locally to a CSV file
-        mir_hr_df.to_csv("ecb_mir_croatia_dataset.csv", index=False)
+        mir_hr_df.to_csv("MIR_podaci_HR.csv", index=False)
