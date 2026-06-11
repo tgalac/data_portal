@@ -140,7 +140,7 @@
         <article class="tile"><div class="kicker">XLS SDMX</div><h3>Novac</h3><p>Novac i monetarni agregati</p></article>
         <article class="tile"><div class="kicker">XLS SDMX</div><h3>Monetarne institucije</h3><p>Bilance monetarnih institucija</p></article>
         <article class="tile"><div class="kicker"><a href="G tablice.xlsx" download>HNB-XLS</a>
-          <button onclick="chooseMirAction()" class="link-button">ESB-CSV</button></div><h3>Kamatne stope</h3><p>Kamatne stope kreditnih institucija</p></article>
+          <button onclick="openMirDialog()" class="link-button">ESB-CSV</button></div><h3>Kamatne stope</h3><p>Kamatne stope kreditnih institucija</p></article>
         <article class="tile"><div class="kicker">XLS SDMX</div><h3>Vrijednosni papiri</h3><p>Izdanja i ulaganja u vrijednosnice</p></article>
         <article class="tile"><div class="kicker">XLS SDMX</div><h3>Država</h3><p>Državne financije i dug</p></article>
         <article class="tile"><div class="kicker">XLS SDMX</div><h3>Financijski računi</h3><p>Financijska imovina i obveze domaćih sektora</p></article>
@@ -223,19 +223,36 @@
     <div class="wrap copyright">NSBstat - PILOT</div>
   </footer>
   
-  <script>
-function chooseMirAction() {
-  const view = confirm(
-    "Želite li pregledati podatke u pregledniku?\n\n" +
-    "U redu = Pregledaj \nOdustani = Skini "
-  );
+ <div id="mirDialog" class="modal-overlay" style="display: none;">
+  <div class="modal-box">
+    <h3>ESB MIR podaci</h3>
+    <p>Želite li pregledati podatke u pregledniku ili preuzeti CSV datoteku?</p>
 
-  if (view) {
-    window.location.href = "viewer.html";
-  } else {
-    window.location.href = "MIR_podaci_HR_enhanced.csv";
-  }
+    <div class="modal-actions">
+      <button onclick="viewMirData()" class="modal-primary">View</button>
+      <button onclick="downloadMirData()" class="modal-secondary">Download</button>
+      <button onclick="closeMirDialog()" class="modal-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openMirDialog() {
+  document.getElementById("mirDialog").style.display = "flex";
+}
+
+function closeMirDialog() {
+  document.getElementById("mirDialog").style.display = "none";
+}
+
+function viewMirData() {
+  window.location.href = "viewer.html";
+}
+
+function downloadMirData() {
+  window.location.href = "MIR_podaci_HR_enhanced.csv";
 }
 </script>
+  
 </body>
 </html>
