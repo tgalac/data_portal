@@ -8,6 +8,12 @@ Default output files:
 
 Requirements:
     pip install pandas requests
+
+Main points:
+    - Keeps original ECB code columns.
+    - Adds adjacent *_LABEL columns for coded dimensions/attributes.
+    - Fails loudly if no labels are added, instead of silently producing
+      an unchanged CSV.
 """
 
 from __future__ import annotations
@@ -28,15 +34,36 @@ import requests
 DATA_URL = "https://data-api.ecb.europa.eu/service/data/MIR/"
 SERIES_KEY = "M.HR.......EUR.N"
 
-# The MIR data-structure definition contains the codelists used to decode
-# dimension/attribute code values in the CSV returned by the data endpoint.
-DSD_URL = "https://data-api.ecb.europa.eu/service/datastructure/ECB/ECB_MIR1?format=structure"
+# Important: references=all is needed so that the DSD response includes the
+# referenced codelists, not only the structural shell.
+DSD_URL = (
+    "https://data-api.ecb.europa.eu/service/datastructure/ECB/ECB_MIR1"
+    "?references=all&format=structure"
+)
 
 RAW_OUTPUT_CSV = "MIR_podaci_HR.csv"
 ENHANCED_OUTPUT_CSV = "MIR_podaci_HR_enhanced.csv"
 
 PREFERRED_LANGUAGE = "en"
 REQUEST_TIMEOUT_SECONDS = 120
+
+# Explicit MIR dimension-to-codelist mapping shown on the ECB MIR Data Portal
+# structure page. This makes the script robust even if parsing the component
+# mapping from the SDMX XML varies slightly.
+MANUAL_COMPONENT_TO_CODELIST: Dict[str, str] = {
+    "FREQ": "CL_FREQ",
+    "REF_AREA": "CL_AREA_EE",
+    "BS_REP_SECTOR": "CL_BS_REP_SECTOR",
+    "BS_ITEM": "CL_BS_ITEM",
+    "MATURITY_NOT_IRATE": "CL_MATURITY_ORIG",
+    "DATA_TYPE_MIR": "CL_DATA_TYPE_MIR",
+    "AMOUNT_CAT": "CL_AMOUNT_CAT",
+    "BS_COUNT_SECTOR": "CL_BS_COUNT_SECTOR",
+    "CURRENCY_TRANS": "CL_CURRENCY",
+    "IR_BUS_COV": "CL_IR_BUS_COV",
+    "OBS_STATUS": "CL_OBS_STATUS",
+    "OBS_CONF": "CL_OBS_CONF",
+}
 
 
 # -----------------------------
@@ -77,23 +104,41 @@ def get_best_name(element: ET.Element, preferred_language: str = "en") -> Option
     return names[0][1] if names else None
 
 
+def first_ref_id(parent: ET.Element) -> Optional[str]:
+    """Return the first nested SDMX Ref id, if any."""
+    for element in parent.iter():
+        if local_name(element.tag) == "Ref":
+            ref_id = element.attrib.get("id")
+            if ref_id:
+                return ref_id
+    return None
+
+
+def get_component_id(component: ET.Element) -> Optional[str]:
+    """
+    Return a Dimension/Attribute concept id.
+
+    Some SDMX XML variants put this directly in an id attribute; others identify
+    it under ConceptIdentity/Ref. This supports both patterns.
+    """
+    direct_id = component.attrib.get("id")
+    if direct_id:
+        return direct_id
+
+    for child in component:
+        if local_name(child.tag) == "ConceptIdentity":
+            return first_ref_id(child)
+
+    return None
+
+
 def find_enumeration_codelist_id(component: ET.Element) -> Optional[str]:
     """
     Find the codelist ID referenced by a Dimension or Attribute component.
-
-    In SDMX-ML 2.1 this is typically:
-        Dimension/LocalRepresentation/Enumeration/Ref id="CL_..."
     """
-    for enum in component.iter():
-        if local_name(enum.tag) != "Enumeration":
-            continue
-
-        for ref in enum.iter():
-            if local_name(ref.tag) == "Ref":
-                ref_id = ref.attrib.get("id")
-                if ref_id:
-                    return ref_id
-
+    for element in component.iter():
+        if local_name(element.tag) == "Enumeration":
+            return first_ref_id(element)
     return None
 
 
@@ -133,25 +178,15 @@ def parse_codelists(root: ET.Element, preferred_language: str = "en") -> Dict[st
 
 
 def parse_component_to_codelist_map(root: ET.Element) -> Dict[str, str]:
-    """
-    Parse the mapping from MIR CSV component IDs to codelist IDs.
-
-    Example output:
-        {
-            "FREQ": "CL_FREQ",
-            "REF_AREA": "CL_AREA_EE",
-            "BS_ITEM": "CL_BS_ITEM",
-            ...
-        }
-    """
+    """Parse mapping from SDMX component IDs to codelist IDs."""
     component_to_codelist: Dict[str, str] = {}
 
     for component in root.iter():
         component_type = local_name(component.tag)
-        if component_type not in {"Dimension", "DataAttribute", "Attribute"}:
+        if component_type not in {"Dimension", "TimeDimension", "DataAttribute", "Attribute"}:
             continue
 
-        component_id = component.attrib.get("id")
+        component_id = get_component_id(component)
         if not component_id:
             continue
 
@@ -190,12 +225,13 @@ def get_ecb_mir_croatia() -> Optional[pd.DataFrame]:
 
 
 def get_mir_dsd_root() -> ET.Element:
-    """Download and parse the MIR DSD XML structure."""
+    """Download and parse the MIR DSD XML structure, including codelists."""
     headers = {
         "Accept": "application/vnd.sdmx.structure+xml;version=2.1, application/xml, text/xml"
     }
 
     print("Requesting MIR DSD / codelists from ECB API...")
+    print(f"DSD URL: {DSD_URL}")
     response = requests.get(DSD_URL, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
     response.raise_for_status()
 
@@ -217,18 +253,29 @@ def add_codelist_labels(
     Add human-readable label columns to a MIR CSV DataFrame.
 
     For each CSV column that has a codelist in the MIR DSD, this adds a new
-    column named <COLUMN>_LABEL. By default, original code columns are kept.
-
-    If keep_original_codes=False, the original code columns are replaced by
-    labels instead. This is less safe for machine processing, so the default is
-    True.
+    column named <COLUMN>_LABEL. Original code columns are kept by default.
     """
     codelists = parse_codelists(dsd_root, preferred_language=preferred_language)
-    component_to_codelist = parse_component_to_codelist_map(dsd_root)
+    parsed_component_map = parse_component_to_codelist_map(dsd_root)
+
+    # Manual mapping is used as a fallback and also normalises the mapping to
+    # the ECB MIR CSV column names.
+    component_to_codelist = dict(parsed_component_map)
+    component_to_codelist.update(MANUAL_COMPONENT_TO_CODELIST)
+
+    print(f"Parsed {len(codelists)} codelists from DSD.")
+    print(f"Parsed {len(parsed_component_map)} component mappings from DSD XML.")
+
+    if not codelists:
+        raise RuntimeError(
+            "No codelists were found in the DSD response. The usual cause is "
+            "that the DSD URL was fetched without references=all."
+        )
 
     enhanced = df.copy()
     added_columns: list[str] = []
     replaced_columns: list[str] = []
+    mapped_value_count = 0
 
     for column in list(df.columns):
         codelist_id = component_to_codelist.get(column)
@@ -237,12 +284,14 @@ def add_codelist_labels(
 
         code_map = codelists.get(codelist_id)
         if not code_map:
+            print(f"Warning: codelist {codelist_id} for column {column} was not found in DSD.")
             continue
 
         # Map using string representation, because some codelist values are
         # numeric-looking codes such as 0 or 2240, while pandas may infer int.
         source_values = df[column].map(lambda x: None if pd.isna(x) else str(x))
         label_values = source_values.map(code_map)
+        mapped_value_count += int(label_values.notna().sum())
 
         # Keep unmapped values visible rather than creating blank labels.
         label_values = label_values.fillna(source_values)
@@ -265,17 +314,18 @@ def add_codelist_labels(
         if replaced_columns:
             print("Replaced columns:", ", ".join(replaced_columns))
 
+    if mapped_value_count == 0:
+        raise RuntimeError(
+            "No code values were mapped to labels. The enhanced CSV would be "
+            "identical to the raw CSV, so the script is stopping. Check the "
+            "GitHub Actions log for missing codelists or changed ECB DSD IDs."
+        )
+
     return enhanced
 
 
 def add_series_label_column(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Add a compact SERIES_LABEL column from available dimension label columns.
-
-    This is optional but useful in Excel filters/pivots because it gives one
-    human-readable description per series row. Existing ECB TITLE/TITLE_COMPL
-    columns are kept unchanged.
-    """
+    """Add a compact SERIES_LABEL column from available dimension label columns."""
     dimension_order = [
         "FREQ",
         "REF_AREA",
@@ -303,10 +353,7 @@ def add_series_label_column(df: pd.DataFrame) -> pd.DataFrame:
                 parts.append(str(value).strip())
         return " | ".join(parts)
 
-    if "KEY" in result.columns:
-        insert_at = result.columns.get_loc("KEY") + 1
-    else:
-        insert_at = 0
+    insert_at = result.columns.get_loc("KEY") + 1 if "KEY" in result.columns else 0
 
     if "SERIES_LABEL" not in result.columns:
         result.insert(insert_at, "SERIES_LABEL", result.apply(combine_labels, axis=1))
@@ -349,6 +396,10 @@ def main() -> int:
         return 1
     except ET.ParseError as exc:
         print("Failed to parse MIR DSD XML.")
+        print(exc)
+        return 1
+    except RuntimeError as exc:
+        print("Failed to create a labelled/enhanced CSV.")
         print(exc)
         return 1
 
