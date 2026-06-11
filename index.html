@@ -5,6 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>NSBstat</title>
   <style>
+    .link-button {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.link-button:hover {
+  opacity: 0.8;
+}
     :root{
       --blue:#b5121b;
       --blue-2:#9b1b30;
@@ -139,7 +151,8 @@
       <div class="discovery-grid">
         <article class="tile"><div class="kicker">XLS SDMX</div><h3>Novac</h3><p>Novac i monetarni agregati</p></article>
         <article class="tile"><div class="kicker">XLS SDMX</div><h3>Monetarne institucije</h3><p>Bilance monetarnih institucija</p></article>
-        <article class="tile"><div class="kicker"><a href="G tablice.xlsx" download>HNB-XLS</a> <a href="MIR_podaci_HR_enhanced.csv" download>ESB-CSV</a> </div><h3>Kamatne stope</h3><p>Kamatne stope kreditnih institucija</p></article>
+        <article class="tile"><div class="kicker"><a href="G tablice.xlsx" download>HNB-XLS</a>
+          <button onclick="chooseMirAction()" class="link-button">ESB-CSV</button></div><h3>Kamatne stope</h3><p>Kamatne stope kreditnih institucija</p></article>
         <article class="tile"><div class="kicker">XLS SDMX</div><h3>Vrijednosni papiri</h3><p>Izdanja i ulaganja u vrijednosnice</p></article>
         <article class="tile"><div class="kicker">XLS SDMX</div><h3>Država</h3><p>Državne financije i dug</p></article>
         <article class="tile"><div class="kicker">XLS SDMX</div><h3>Financijski računi</h3><p>Financijska imovina i obveze domaćih sektora</p></article>
@@ -221,5 +234,20 @@
     </div>
     <div class="wrap copyright">NSBstat - PILOT</div>
   </footer>
+  
+  <script>
+function chooseMirAction() {
+  const view = confirm(
+    "Želite li pregledati ESB MIR podatke u pregledniku?\n\n" +
+    "OK = pregled podataka\nCancel = preuzimanje CSV datoteke"
+  );
+
+  if (view) {
+    window.location.href = "viewer.html";
+  } else {
+    window.location.href = "MIR_podaci_HR_enhanced.csv";
+  }
+}
+</script>
 </body>
 </html>
