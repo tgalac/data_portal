@@ -43,7 +43,7 @@ jobs:
         git config --local user.name "github-actions[bot]"
         
         # Stage the CSV file (adjust filename if yours is different)
-        git add MIR_podaci_HR.csv
+        git add MIR_podaci_HR_enhanced.csv
         
         # Only commit and push if the file actually changed to avoid empty commit errors
         if git diff --staged --quiet; then
