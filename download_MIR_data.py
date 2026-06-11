@@ -1,17 +1,18 @@
 """
-Download Croatian MIR data from the ECB Data Portal API and create an
-"enhanced" CSV with human-readable labels from the MIR DSD codelists.
+Download Croatian MIR data from the ECB Data Portal API and create a lighter
+CSV with human-readable labels from the MIR DSD codelists.
 
-Default output files:
-    MIR_podaci_HR.csv
+Default output file:
     MIR_podaci_HR_enhanced.csv
 
 Requirements:
     pip install pandas requests
 
 Main points:
-    - Keeps original ECB code columns.
-    - Adds adjacent *_LABEL columns for coded dimensions/attributes.
+    - Default mode replaces ECB dimension/attribute codes with labels.
+    - This avoids duplicate CODE + CODE_LABEL columns and reduces the number
+      of fields shown in browser-based CSV/pivot viewers.
+    - A switch near the top of the script can restore the older behaviour.
     - Fails loudly if no labels are added, instead of silently producing
       an unchanged CSV.
 """
@@ -43,6 +44,16 @@ DSD_URL = (
 
 RAW_OUTPUT_CSV = "MIR_podaci_HR.csv"
 ENHANCED_OUTPUT_CSV = "MIR_podaci_HR_enhanced.csv"
+
+# Output mode for the enhanced CSV:
+#   "labels_only"      = replace code values with labels; no *_LABEL duplicates.
+#   "codes_and_labels" = keep code columns and add adjacent *_LABEL columns.
+#   "codes_only"       = raw ECB-style output only, saved as ENHANCED_OUTPUT_CSV.
+OUTPUT_MODE = "labels_only"
+
+# Set this to True only if you also want to write MIR_podaci_HR.csv locally.
+# Your GitHub workflow does not need to commit this raw file.
+SAVE_RAW_CSV = False
 
 PREFERRED_LANGUAGE = "en"
 REQUEST_TIMEOUT_SECONDS = 120
@@ -325,7 +336,13 @@ def add_codelist_labels(
 
 
 def add_series_label_column(df: pd.DataFrame) -> pd.DataFrame:
-    """Add a compact SERIES_LABEL column from available dimension label columns."""
+    """Add a compact SERIES_LABEL column from available MIR dimension columns.
+
+    Works in both output modes:
+      - codes_and_labels: uses *_LABEL columns;
+      - labels_only: uses the original dimension columns after their values
+        have already been replaced by labels.
+    """
     dimension_order = [
         "FREQ",
         "REF_AREA",
@@ -339,15 +356,24 @@ def add_series_label_column(df: pd.DataFrame) -> pd.DataFrame:
         "IR_BUS_COV",
     ]
 
-    label_columns = [f"{col}_LABEL" for col in dimension_order if f"{col}_LABEL" in df.columns]
-    if not label_columns:
-        return df
-
     result = df.copy()
+
+    # Prefer *_LABEL columns when they exist. Otherwise use the dimension
+    # columns themselves, which is correct in labels_only mode.
+    source_columns = []
+    for col in dimension_order:
+        label_col = f"{col}_LABEL"
+        if label_col in result.columns:
+            source_columns.append(label_col)
+        elif col in result.columns:
+            source_columns.append(col)
+
+    if not source_columns:
+        return result
 
     def combine_labels(row: pd.Series) -> str:
         parts = []
-        for col in label_columns:
+        for col in source_columns:
             value = row.get(col)
             if pd.notna(value) and str(value).strip():
                 parts.append(str(value).strip())
@@ -361,9 +387,58 @@ def add_series_label_column(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def enhance_mir_dataframe(df: pd.DataFrame, keep_original_codes: bool = True) -> pd.DataFrame:
-    """Download the DSD and return a label-enhanced MIR DataFrame."""
+def simplify_for_labels_only_viewer(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a compact labels-only CSV suitable for the browser viewer.
+
+    The coded dimension/attribute columns keep their original column names but
+    contain human-readable labels. Technical columns that are usually not
+    useful as browser filters are dropped when present.
+    """
+    technical_columns_to_drop = [
+        "STRUCTURE",
+        "STRUCTURE_ID",
+        "ACTION",
+    ]
+
+    result = df.drop(
+        columns=[col for col in technical_columns_to_drop if col in df.columns],
+        errors="ignore",
+    ).copy()
+
+    # Keep the most useful columns near the front for Excel and web viewers.
+    preferred_front_order = [
+        "KEY",
+        "SERIES_LABEL",
+        "TIME_PERIOD",
+        "OBS_VALUE",
+        "FREQ",
+        "REF_AREA",
+        "BS_REP_SECTOR",
+        "BS_ITEM",
+        "MATURITY_NOT_IRATE",
+        "DATA_TYPE_MIR",
+        "AMOUNT_CAT",
+        "BS_COUNT_SECTOR",
+        "CURRENCY_TRANS",
+        "IR_BUS_COV",
+    ]
+
+    front = [col for col in preferred_front_order if col in result.columns]
+    rest = [col for col in result.columns if col not in front]
+    return result[front + rest]
+
+def enhance_mir_dataframe(df: pd.DataFrame, output_mode: str = OUTPUT_MODE) -> pd.DataFrame:
+    """Download the DSD and return a MIR DataFrame in the selected output mode."""
+    if output_mode not in {"labels_only", "codes_and_labels", "codes_only"}:
+        raise ValueError(
+            "OUTPUT_MODE must be one of: labels_only, codes_and_labels, codes_only"
+        )
+
+    if output_mode == "codes_only":
+        return df.copy()
+
     dsd_root = get_mir_dsd_root()
+    keep_original_codes = output_mode == "codes_and_labels"
     enhanced = add_codelist_labels(
         df,
         dsd_root,
@@ -371,6 +446,10 @@ def enhance_mir_dataframe(df: pd.DataFrame, keep_original_codes: bool = True) ->
         keep_original_codes=keep_original_codes,
     )
     enhanced = add_series_label_column(enhanced)
+
+    if output_mode == "labels_only":
+        enhanced = simplify_for_labels_only_viewer(enhanced)
+
     return enhanced
 
 
@@ -384,12 +463,15 @@ def main() -> int:
     if mir_hr_df is None:
         return 1
 
-    # Save raw ECB CSV output for reproducibility.
-    mir_hr_df.to_csv(RAW_OUTPUT_CSV, index=False, encoding="utf-8-sig")
-    print(f"Saved raw data to: {RAW_OUTPUT_CSV}")
+    if SAVE_RAW_CSV:
+        # Optional raw ECB CSV output for reproducibility.
+        mir_hr_df.to_csv(RAW_OUTPUT_CSV, index=False, encoding="utf-8-sig")
+        print(f"Saved raw data to: {RAW_OUTPUT_CSV}")
+    else:
+        print("Skipping raw CSV output because SAVE_RAW_CSV = False.")
 
     try:
-        enhanced_df = enhance_mir_dataframe(mir_hr_df, keep_original_codes=True)
+        enhanced_df = enhance_mir_dataframe(mir_hr_df, output_mode=OUTPUT_MODE)
     except requests.HTTPError as exc:
         print("Failed to fetch MIR DSD from ECB API.")
         print(exc)
@@ -406,6 +488,9 @@ def main() -> int:
     # UTF-8 with BOM opens cleanly in many Excel installations.
     enhanced_df.to_csv(ENHANCED_OUTPUT_CSV, index=False, encoding="utf-8-sig")
     print(f"Saved enhanced data to: {ENHANCED_OUTPUT_CSV}")
+    print(f"Output mode: {OUTPUT_MODE}")
+    print(f"Output columns: {len(enhanced_df.columns)}")
+    print("Columns:", ", ".join(enhanced_df.columns))
 
     return 0
 
