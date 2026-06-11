@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>MIR Croatia Data Viewer</title>
+
+  <!-- jQuery + jQuery UI required by PivotTable.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.13.2/jquery-ui.min.js"></script>
+
+  <!-- PapaParse for CSV parsing -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+
+  <!-- PivotTable.js -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pivottable/2.23.0/pivot.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pivottable/2.23.0/pivot.min.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 24px;
+      background: #f5f5f5;
+      color: #222;
+    }
+
+    h1 {
+      margin-bottom: 6px;
+    }
+
+    .note {
+      margin-bottom: 18px;
+      color: #555;
+    }
+
+    #status {
+      margin: 16px 0;
+      font-weight: bold;
+    }
+
+    #output {
+      margin-top: 20px;
+      background: white;
+      padding: 16px;
+      border: 1px solid #ccc;
+      overflow-x: auto;
+    }
+
+    a {
+      color: #b00020;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>MIR Croatia Data Viewer</h1>
+
+  <p class="note">
+    This page loads the enhanced MIR CSV file and opens it in an interactive pivot table.
+    Loading may take some time because the file is large.
+  </p>
+
+  <p>
+    <a href="index.html">Back to home page</a> |
+    <a href="MIR_podaci_HR_enhanced.csv" download>Download CSV</a>
+  </p>
+
+  <div id="status">Loading CSV file...</div>
+  <div id="output"></div>
+
+  <script>
+    const csvUrl = "MIR_podaci_HR_enhanced.csv";
+
+    Papa.parse(csvUrl, {
+      download: true,
+      header: true,
+      dynamicTyping: true,
+      skipEmptyLines: true,
+
+      complete: function(results) {
+        const data = results.data;
+
+        document.getElementById("status").textContent =
+          "Loaded " + data.length.toLocaleString() + " rows. Building pivot table...";
+
+        $("#output").pivotUI(data, {
+          rows: ["TIME_PERIOD"],
+          cols: ["SERIES_LABEL"],
+          vals: ["OBS_VALUE"],
+          aggregatorName: "Sum",
+          rendererName: "Table",
+          unusedAttrsVertical: false
+        });
+
+        document.getElementById("status").textContent =
+          "Loaded " + data.length.toLocaleString() + " rows.";
+      },
+
+      error: function(error) {
+        document.getElementById("status").textContent =
+          "Error loading CSV: " + error.message;
+      }
+    });
+  </script>
+</body>
+</html>
