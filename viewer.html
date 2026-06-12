@@ -16,6 +16,30 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pivottable/2.23.0/pivot.min.js"></script>
 
   <style>
+
+    .pvtTable {
+  width: auto !important;
+  table-layout: auto !important;
+}
+
+.pvtTable td {
+  white-space: nowrap;
+  width: auto !important;
+  min-width: 90px;
+}
+
+.pvtTable th {
+  white-space: normal;
+  width: auto !important;
+  min-width: 140px;
+  max-width: 240px;
+  overflow-wrap: break-word;
+}
+
+#output {
+  overflow-x: auto;
+}
+
     body {
       font-family: Arial, sans-serif;
       margin: 24px;
