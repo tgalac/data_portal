@@ -15,6 +15,9 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pivottable/2.23.0/pivot.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pivottable/2.23.0/pivot.min.js"></script>
 
+  <!-- Chart.js for simple line graphs -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -108,6 +111,54 @@
       margin-bottom: 8px;
     }
 
+
+    .viewer-actions {
+      margin: 14px 0 12px 0;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .viewer-actions button {
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid #b00020;
+      background: #b00020;
+      color: #ffffff;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    .viewer-actions button:hover {
+      opacity: 0.9;
+    }
+
+    #chartStatus {
+      color: #555;
+    }
+
+    #chartContainer {
+      display: none;
+      margin: 16px 0 20px 0;
+      background: #ffffff;
+      padding: 16px;
+      border: 1px solid #ccc;
+      height: 560px;
+      box-sizing: border-box;
+    }
+
+    #chartContainer h2 {
+      margin-top: 0;
+      font-size: 18px;
+    }
+
+    #mirChart {
+      width: 100% !important;
+      max-height: 520px;
+    }
+
+
     a {
       color: #b00020;
     }
@@ -128,11 +179,179 @@
   </p>
 
   <div id="status">Loading CSV file...</div>
+
+  <div class="viewer-actions">
+    <button type="button" onclick="drawSelectedSeriesChart()">Draw selected series</button>
+    <span id="chartStatus">Use the pivot filters first, then draw a line graph from the currently visible table.</span>
+  </div>
+
+  <div id="chartContainer">
+    <h2>Selected series chart</h2>
+    <canvas id="mirChart"></canvas>
+  </div>
+
   <div id="topScrollbar"><div id="topScrollbarInner"></div></div>
   <div id="output"></div>
 
   <script>
     const csvUrl = "MIR_podaci_HR_enhanced.csv";
+
+    let mirChart = null;
+
+    function parseDisplayedNumber(valueText) {
+      if (!valueText) {
+        return null;
+      }
+
+      let cleaned = String(valueText)
+        .replace(/ /g, " ")
+        .replace(/,/g, "")
+        .trim();
+
+      if (cleaned === "" || cleaned === "null" || cleaned === "undefined") {
+        return null;
+      }
+
+      const value = Number(cleaned);
+      return Number.isFinite(value) ? value : null;
+    }
+
+    function extractVisiblePivotTableData() {
+      const table = document.querySelector("#output .pvtTable");
+      if (!table) {
+        throw new Error("No pivot table was found. Wait until the data are loaded.");
+      }
+
+      const colLabelCells = Array.from(table.querySelectorAll("th.pvtColLabel"));
+      let seriesLabels = colLabelCells.map(cell => cell.textContent.trim()).filter(Boolean);
+
+      const dataRows = Array.from(table.querySelectorAll("tr")).filter(row =>
+        row.querySelector("td.pvtVal")
+      );
+
+      if (dataRows.length === 0) {
+        throw new Error("No visible data rows were found in the pivot table.");
+      }
+
+      const firstValueCount = dataRows[0].querySelectorAll("td.pvtVal").length;
+
+      if (seriesLabels.length !== firstValueCount) {
+        seriesLabels = Array.from({ length: firstValueCount }, (_, index) => "Series " + (index + 1));
+      }
+
+      const labels = [];
+      const datasets = seriesLabels.map(label => ({
+        label: label,
+        data: [],
+        spanGaps: true,
+        pointRadius: 1.5,
+        pointHoverRadius: 4,
+        borderWidth: 2,
+        tension: 0
+      }));
+
+      let lastRowLabel = "";
+
+      dataRows.forEach(row => {
+        const rowLabelCell = row.querySelector("th.pvtRowLabel");
+        if (rowLabelCell && rowLabelCell.textContent.trim()) {
+          lastRowLabel = rowLabelCell.textContent.trim();
+        }
+
+        labels.push(lastRowLabel);
+
+        const valueCells = Array.from(row.querySelectorAll("td.pvtVal"));
+        valueCells.forEach((cell, index) => {
+          if (datasets[index]) {
+            datasets[index].data.push(parseDisplayedNumber(cell.textContent));
+          }
+        });
+      });
+
+      return { labels, datasets };
+    }
+
+    function drawSelectedSeriesChart() {
+      const chartStatus = document.getElementById("chartStatus");
+      const chartContainer = document.getElementById("chartContainer");
+      const chartCanvas = document.getElementById("mirChart");
+
+      try {
+        const chartData = extractVisiblePivotTableData();
+
+        if (chartData.datasets.length === 0) {
+          throw new Error("No visible series were found. Select at least one series in the pivot filters.");
+        }
+
+        if (chartData.datasets.length > 12) {
+          const proceed = confirm(
+            "The current table contains " + chartData.datasets.length +
+            " visible series. The chart may be hard to read. Draw it anyway?"
+          );
+          if (!proceed) {
+            return;
+          }
+        }
+
+        chartContainer.style.display = "block";
+
+        if (mirChart) {
+          mirChart.destroy();
+        }
+
+        mirChart = new Chart(chartCanvas, {
+          type: "line",
+          data: chartData,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {
+              mode: "nearest",
+              intersect: false
+            },
+            plugins: {
+              legend: {
+                display: true,
+                position: "bottom",
+                labels: {
+                  boxWidth: 18
+                }
+              },
+              tooltip: {
+                mode: "index",
+                intersect: false
+              }
+            },
+            scales: {
+              x: {
+                title: {
+                  display: true,
+                  text: "Time period"
+                },
+                ticks: {
+                  maxRotation: 90,
+                  minRotation: 0,
+                  autoSkip: true,
+                  maxTicksLimit: 24
+                }
+              },
+              y: {
+                title: {
+                  display: true,
+                  text: "Observation value"
+                }
+              }
+            }
+          }
+        });
+
+        chartStatus.textContent =
+          "Chart drawn from " + chartData.datasets.length.toLocaleString() +
+          " visible series and " + chartData.labels.length.toLocaleString() + " time periods.";
+      } catch (error) {
+        chartStatus.textContent = "Chart error: " + error.message;
+      }
+    }
 
     function syncTopScrollbar() {
       const output = document.getElementById("output");
