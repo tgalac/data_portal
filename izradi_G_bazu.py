@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
-"""Pretvara prezentacijske tablice G1, G2, G3, G5 i G6 u jednu CSV bazu.
+"""Pretvara prezentacijske tablice G1, G2, G3, G5 i G6 u lean CSV bazu.
 
-Zrno izlazne baze jest:
-    datum x izvorna tablica x ekonomska serija x vrsta kamatne stope
+Zrno izlazne baze jest datum pomnozen ekonomskim dimenzijama. Izvorna tablica
+nije dimenzija, nego pomocni atribut. Pet mjera jesu nominalna kamatna stopa na
+nove poslove, nominalna kamatna stopa na stanja, efektivna kamatna stopa, iznos
+novih poslova i iznos stanja.
 
-Svaki redak sadrzi dvije uparene mjere: kamatnu stopu i pripadajuci iznos.
-CSV je prilagodjen hrvatskom Excelu: UTF-8 BOM, tocka-zarez kao delimiter i
-decimalni zarez. Potpuno prazna opazanja standardno se izostavljaju, dok se
-izvorni znak "–" cuva u statusu mjere.
+Kod preklapanja detaljne tablice G1-G3 imaju prednost pred G6. Za iznos novih
+poslova u G2 koristi se iznos iz bloka nominalnih stopa, a iznos uz efektivnu
+stopu se ne izvozi. CSV je prilagodjen hrvatskom Excelu: UTF-8 BOM, tocka-zarez
+kao delimiter i decimalni zarez. Prazne vrijednosti i izvorni znak "–" se ne
+izvoze kao posebna opazanja. Datumski stupci otkrivaju se iz knjige pri svakom
+pokretanju, pa novi mjeseci ne zahtijevaju promjenu koda. Svi podatkovni blokovi
+moraju imati jednak mjesečni raspon; nepotpuno ažurirana knjiga zaustavlja se
+jasnom pogreškom.
 """
 
 from __future__ import annotations
@@ -16,6 +22,7 @@ import argparse
 import csv
 import json
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -57,6 +64,13 @@ class BlockSpec:
     status_row_amount: int
     amount_offset: int
     rows: dict[int, SeriesMeta]
+
+
+@dataclass(frozen=True)
+class Candidate:
+    value: str
+    source: str
+    priority: int
 
 
 def dep(
@@ -295,28 +309,8 @@ BLOCKS = (
 )
 
 
-FOOTNOTE_TEXT = {
-    "G1": "Povijesni podaci u ovom retku odnose se samo na depozite u eurima i kunama s valutnom klauzulom uz euro.",
-    "G2": "Povijesni podaci u ovom retku odnose se samo na kredite u eurima i kunama s valutnom klauzulom uz euro.",
-    "G3": "Povijesni podaci u ovom retku odnose se samo na kredite u eurima i kunama s valutnom klauzulom uz euro.",
-    "G5": "Povijesni podaci u ovom retku odnose se samo na kredite odnosno depozite u eurima i kunama bez valutne klauzule te s valutnom klauzulom uz euro.",
-    "G6": "Povijesni podaci u ovom retku odnose se samo na kredite odnosno depozite u eurima i kunama s valutnom klauzulom uz euro.",
-}
-
-EURO_NOTE = {
-    "G1": "Počevši sa siječnjem 2023. svi podaci odnose se samo na depozite u eurima.",
-    "G2": "Počevši sa siječnjem 2023. svi podaci odnose se samo na kredite u eurima.",
-    "G3": "Počevši sa siječnjem 2023. svi podaci odnose se samo na kredite u eurima.",
-    "G5": "Počevši sa siječnjem 2023. svi podaci odnose se samo na kredite i depozite u eurima.",
-    "G6": "Počevši sa siječnjem 2023. svi podaci odnose se samo na kredite i depozite u eurima.",
-}
-
-FIELDS = (
+DIMENSION_FIELDS = (
     "datum",
-    "tablica",
-    "serija_id",
-    "koncept_tablice",
-    "osnova_obracuna",
     "pozicija",
     "sektor_protustranke",
     "podskup_protustranke",
@@ -326,67 +320,23 @@ FIELDS = (
     "otkazni_rok",
     "pocetno_fiksiranje_kamatne_stope",
     "velicina_kredita",
-    "vrsta_kamatne_stope",
-    "kamatna_stopa",
-    "iznos",
-    "status_kamatne_stope",
-    "status_iznosa",
-    "valutni_obuhvat",
-    "frekvencija",
-    "jedinica_kamatne_stope",
-    "jedinica_iznosa",
-    "broj_decimala_stope",
-    "broj_decimala_iznosa",
-    "izvorna_oznaka",
-    "hijerarhijska_oznaka",
-    "nadredena_serija_id",
-    "od_toga",
-    "izvorni_redak_stope",
-    "izvorni_redak_iznosa",
-    "napomena_serije",
 )
+
+MEASURE_FIELDS = (
+    "nominalna_kamatna_stopa_novi_posao",
+    "nominalna_kamatna_stopa_stanje",
+    "efektivna_kamatna_stopa",
+    "iznos_novi_posao",
+    "iznos_stanje",
+)
+
+FIELDS = DIMENSION_FIELDS + MEASURE_FIELDS + ("izvorne_tablice",)
 
 
 def normalize_space(value: Any) -> str:
     text = "" if value is None else str(value)
     text = text.replace("\xa0", " ").replace("\t", " ").replace("\n", " ")
     return re.sub(r"\s+", " ", text).strip()
-
-
-def hierarchy_code(raw_label: str) -> str:
-    match = re.match(r"^\s*(\d+(?:\.\d+)*\.)", raw_label.replace("\xa0", " "))
-    return match.group(1) if match else ""
-
-
-def clean_label(raw_label: str, footnote_a: bool) -> str:
-    label = normalize_space(raw_label)
-    label = re.sub(r"^\d+(?:\.\d+)*\.\s*", "", label)
-    if footnote_a and label.endswith("a"):
-        label = label[:-1].rstrip()
-    return label
-
-
-def indent_width(raw_label: str) -> int:
-    expanded = raw_label.replace("\xa0", " ").expandtabs(4)
-    return len(expanded) - len(expanded.lstrip(" "))
-
-
-def series_id(block: BlockSpec, rate_row: int) -> str:
-    rate_code = "NKS" if block.vrsta_stope == "NOMINALNA" else "EKS"
-    return f"{block.sheet}_{rate_code}_R{rate_row:03d}"
-
-
-def parent_ids(block: BlockSpec, ws: Any) -> dict[int, str]:
-    stack: list[tuple[int, str]] = []
-    result: dict[int, str] = {}
-    for row in sorted(block.rows):
-        raw = str(ws.cell(row, 2).value or "")
-        indent = indent_width(raw)
-        while stack and stack[-1][0] >= indent:
-            stack.pop()
-        result[row] = stack[-1][1] if stack else ""
-        stack.append((indent, series_id(block, row)))
-    return result
 
 
 def cell_kind(value: Any) -> str:
@@ -411,30 +361,6 @@ def csv_number(value: Any) -> str:
     return text.replace(".", ",")
 
 
-def measure_status(value: Any, marker: Any) -> str:
-    kind = cell_kind(value)
-    if kind == "DASH":
-        return "IZVORNI_ZNAK_MINUS"
-    if kind == "BLANK":
-        return "NEMA_PODATKA"
-    return "REVIDIRANO" if marker == "*" else "REDOVNO"
-
-
-def currency_scope(sheet: str, meta: SeriesMeta, date: datetime) -> str:
-    if date >= datetime(2023, 1, 1):
-        return "EUR"
-    if not meta.fusnota_a:
-        return "PREMA_OPCEM_POVIJESNOM_OBUHVATU_TABLICE"
-    if sheet == "G5":
-        return "EUR_I_HRK_BEZ_KLAUZULE_TE_HRK_UZ_EUR_KLAUZULU"
-    return "EUR_I_HRK_UZ_EUR_KLAUZULU"
-
-
-def note_for(sheet: str, meta: SeriesMeta) -> str:
-    parts = [EURO_NOTE[sheet]]
-    if meta.fusnota_a:
-        parts.insert(0, FOOTNOTE_TEXT[sheet])
-    return " ".join(parts)
 
 
 def date_columns(ws: Any, row: int) -> list[int]:
@@ -455,16 +381,31 @@ def validate_monthly(dates: Iterable[datetime], context: str) -> None:
             raise ValueError(f"{context}: datumi nisu mjesecno neprekinuti: {previous} -> {current}")
 
 
-def build_rows(input_path: Path, keep_blank: bool = False) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    workbook = load_workbook(input_path, data_only=True, read_only=False)
+def candidate_priority(sheet: str) -> int:
+    """Detaljne tablice G1-G3 i tablica stanja G5 imaju prednost pred G6."""
+    return 1 if sheet == "G6" else 0
+
+
+def choose_candidate(candidates: list[Candidate], measure: str, key: tuple[str, ...]) -> Candidate:
+    best_priority = min(candidate.priority for candidate in candidates)
+    best = [candidate for candidate in candidates if candidate.priority == best_priority]
+    values = {candidate.value for candidate in best}
+    if len(values) != 1:
+        details = [(candidate.value, candidate.source) for candidate in best]
+        raise ValueError(f"Kolizija jednakopravnih izvora za {measure}, kljuc {key}: {details}")
+    return sorted(best, key=lambda candidate: candidate.source)[0]
+
+
+def build_rows_from_workbook(workbook: Any, input_label: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     required = {"Metodologija", "G1", "G2", "G3", "G5", "G6"}
     missing = required.difference(workbook.sheetnames)
     if missing:
         raise ValueError(f"Nedostaju ocekivani listovi: {sorted(missing)}")
 
-    output: list[dict[str, Any]] = []
-    seen_series: set[str] = set()
-    possible = numeric = dash = blank = 0
+    groups: dict[tuple[str, ...], dict[str, Any]] = {}
+    source_series = sum(len(block.rows) for block in BLOCKS)
+    possible = numeric = dash = blank = ignored_effective_amounts = 0
+    common_dates: list[datetime] | None = None
 
     for block in BLOCKS:
         ws = workbook[block.sheet]
@@ -478,8 +419,13 @@ def build_rows(input_path: Path, keep_blank: bool = False) -> tuple[list[dict[st
         if rate_dates != amount_dates:
             raise ValueError(f"{block.sheet} {block.vrsta_stope}: datumi stopa i iznosa nisu jednaki.")
         validate_monthly(rate_dates, f"{block.sheet} {block.vrsta_stope}")
+        if common_dates is None:
+            common_dates = rate_dates
+        elif rate_dates != common_dates:
+            raise ValueError(
+                f"{block.sheet} {block.vrsta_stope}: datumski raspon nije jednak ostalim podatkovnim blokovima."
+            )
 
-        parents = parent_ids(block, ws)
         for rate_row, meta in sorted(block.rows.items()):
             amount_row = rate_row + block.amount_offset
             raw_rate_label = str(ws.cell(rate_row, 2).value or "")
@@ -489,15 +435,6 @@ def build_rows(input_path: Path, keep_blank: bool = False) -> tuple[list[dict[st
                     f"{block.sheet}: oznake retka stope {rate_row} i iznosa {amount_row} nisu jednake."
                 )
 
-            sid = series_id(block, rate_row)
-            if sid in seen_series:
-                raise ValueError(f"Duplicirani serija_id: {sid}")
-            seen_series.add(sid)
-
-            cleaned = clean_label(raw_rate_label, meta.fusnota_a)
-            code = hierarchy_code(raw_rate_label)
-            is_of_which = cleaned.casefold().startswith("od toga:")
-
             for col, date in zip(rate_cols, rate_dates):
                 possible += 1
                 rate_value = ws.cell(rate_row, col).value
@@ -506,69 +443,99 @@ def build_rows(input_path: Path, keep_blank: bool = False) -> tuple[list[dict[st
                 amount_kind = cell_kind(amount_value)
                 if rate_kind != amount_kind:
                     raise ValueError(
-                        f"{block.sheet} {sid} {date:%Y-%m-%d}: raspolozivost stope i iznosa nije jednaka."
+                        f"{block.sheet} redak {rate_row}, {date:%Y-%m-%d}: "
+                        "raspolozivost stope i iznosa nije jednaka."
                     )
                 if rate_kind == "BLANK":
                     blank += 1
-                    if not keep_blank:
-                        continue
+                    continue
                 elif rate_kind == "DASH":
                     dash += 1
-                else:
-                    numeric += 1
+                    continue
 
-                output.append(
-                    {
-                        "datum": date.strftime("%Y-%m-%d"),
-                        "tablica": block.sheet,
-                        "serija_id": sid,
-                        "koncept_tablice": block.koncept_tablice,
-                        "osnova_obracuna": meta.osnova,
-                        "pozicija": meta.pozicija,
-                        "sektor_protustranke": meta.sektor,
-                        "podskup_protustranke": meta.podskup,
-                        "instrument": meta.instrument,
-                        "namjena_kredita": meta.namjena,
-                        "izvorno_dospijece": meta.dospijece,
-                        "otkazni_rok": meta.otkazni_rok,
-                        "pocetno_fiksiranje_kamatne_stope": meta.fiksiranje,
-                        "velicina_kredita": meta.velicina,
-                        "vrsta_kamatne_stope": block.vrsta_stope,
-                        "kamatna_stopa": csv_number(rate_value),
-                        "iznos": csv_number(amount_value),
-                        "status_kamatne_stope": measure_status(
-                            rate_value, ws.cell(block.status_row_rate, col).value
-                        ),
-                        "status_iznosa": measure_status(
-                            amount_value, ws.cell(block.status_row_amount, col).value
-                        ),
-                        "valutni_obuhvat": currency_scope(block.sheet, meta, date),
-                        "frekvencija": "M",
-                        "jedinica_kamatne_stope": "POSTOTAK_GODISNJE",
-                        "jedinica_iznosa": "MIL_EUR",
-                        "broj_decimala_stope": "2",
-                        "broj_decimala_iznosa": "1",
-                        "izvorna_oznaka": cleaned,
-                        "hijerarhijska_oznaka": code,
-                        "nadredena_serija_id": parents[rate_row],
-                        "od_toga": "DA" if is_of_which else "NE",
-                        "izvorni_redak_stope": str(rate_row),
-                        "izvorni_redak_iznosa": str(amount_row),
-                        "napomena_serije": note_for(block.sheet, meta),
-                    }
+                numeric += 1
+                dimensions = {
+                    "datum": date.strftime("%Y-%m-%d"),
+                    "pozicija": meta.pozicija,
+                    "sektor_protustranke": meta.sektor,
+                    "podskup_protustranke": meta.podskup,
+                    "instrument": meta.instrument,
+                    "namjena_kredita": meta.namjena,
+                    "izvorno_dospijece": meta.dospijece,
+                    "otkazni_rok": meta.otkazni_rok,
+                    "pocetno_fiksiranje_kamatne_stope": meta.fiksiranje,
+                    "velicina_kredita": meta.velicina,
+                }
+                key = tuple(dimensions[field] for field in DIMENSION_FIELDS)
+                group = groups.setdefault(
+                    key,
+                    {"dimensions": dimensions, "candidates": defaultdict(list)},
+                )
+                priority = candidate_priority(block.sheet)
+
+                if block.vrsta_stope == "EFEKTIVNA":
+                    rate_measure = "efektivna_kamatna_stopa"
+                elif meta.osnova == NOVI:
+                    rate_measure = "nominalna_kamatna_stopa_novi_posao"
+                else:
+                    rate_measure = "nominalna_kamatna_stopa_stanje"
+                group["candidates"][rate_measure].append(
+                    Candidate(csv_number(rate_value), block.sheet, priority)
                 )
 
+                # Iznos uz EKS namjerno se ne izvozi; nominalni blok G2 jest
+                # kanonski izvor mjere iznos_novi_posao.
+                if block.vrsta_stope == "EFEKTIVNA":
+                    ignored_effective_amounts += 1
+                    continue
+                amount_measure = "iznos_novi_posao" if meta.osnova == NOVI else "iznos_stanje"
+                group["candidates"][amount_measure].append(
+                    Candidate(csv_number(amount_value), block.sheet, priority)
+                )
+
+    output: list[dict[str, Any]] = []
+    selected_measure_counts = {measure: 0 for measure in MEASURE_FIELDS}
+    discarded_lower_priority = 0
+    for key in sorted(groups):
+        group = groups[key]
+        row = dict(group["dimensions"])
+        sources: set[str] = set()
+        for measure in MEASURE_FIELDS:
+            candidates = group["candidates"].get(measure, [])
+            if not candidates:
+                row[measure] = ""
+                continue
+            chosen = choose_candidate(candidates, measure, key)
+            row[measure] = chosen.value
+            sources.add(chosen.source)
+            selected_measure_counts[measure] += 1
+            discarded_lower_priority += sum(
+                candidate.priority > chosen.priority for candidate in candidates
+            )
+        row["izvorne_tablice"] = "|".join(sorted(sources))
+        output.append(row)
+
     summary = {
-        "input": str(input_path),
-        "broj_serija": len(seen_series),
+        "input": input_label,
+        "prvi_datum": common_dates[0].strftime("%Y-%m-%d") if common_dates else None,
+        "zadnji_datum": common_dates[-1].strftime("%Y-%m-%d") if common_dates else None,
+        "broj_mjeseci": len(common_dates or []),
+        "broj_izvornih_serija": source_series,
         "broj_mogucih_redaka": possible,
-        "broj_numerickih_redaka": numeric,
-        "broj_redaka_sa_znakom_minus": dash,
-        "broj_potpuno_praznih_redaka": blank,
+        "broj_numerickih_parova_u_izvoru": numeric,
+        "broj_izvornih_znakova_minus": dash,
+        "broj_praznih_parova_u_izvoru": blank,
+        "broj_ignoriranih_iznosa_uz_EKS": ignored_effective_amounts,
+        "broj_kandidata_odbacenih_zbog_prioriteta": discarded_lower_priority,
+        "broj_nepraznih_mjera": selected_measure_counts,
         "broj_izvezenih_redaka": len(output),
-        "ukljuceni_potpuno_prazni_retci": keep_blank,
     }
     return output, summary
+
+
+def build_rows(input_path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    workbook = load_workbook(input_path, data_only=True, read_only=False)
+    return build_rows_from_workbook(workbook, str(input_path))
 
 
 def write_csv(rows: list[dict[str, Any]], output_path: Path) -> None:
@@ -590,19 +557,16 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path, help="Ulazna Excel knjiga G tablice.xlsx")
     parser.add_argument("output", type=Path, nargs="?", default=Path("G_podaci.csv"), help="Izlazni CSV")
-    parser.add_argument(
-        "--keep-blank",
-        action="store_true",
-        help="Uključi i potpuno prazne kombinacije serije i datuma.",
-    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    rows, summary = build_rows(args.input, keep_blank=args.keep_blank)
-    if summary["broj_serija"] != 142:
-        raise ValueError(f"Ocekivane su 142 serije, pronadjeno je {summary['broj_serija']}.")
+    rows, summary = build_rows(args.input)
+    if summary["broj_izvornih_serija"] != 142:
+        raise ValueError(
+            f"Ocekivane su 142 izvorne serije, pronadjeno je {summary['broj_izvornih_serija']}."
+        )
     write_csv(rows, args.output)
     summary["output"] = str(args.output)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
