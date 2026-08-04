@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>MIR Croatia Data Viewer</title>
+  <title>G Tables Data Viewer</title>
 
   <!-- jQuery + jQuery UI required by PivotTable.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
@@ -166,16 +166,16 @@
 </head>
 
 <body>
-  <h1>MIR Croatia Data Viewer</h1>
+  <h1>G Tables Data Viewer</h1>
 
   <p class="note">
-    This page loads the enhanced MIR CSV file and opens it in an interactive pivot table.
+    This page loads the G tables CSV database and opens it in an interactive pivot table.
     Loading may take some time because the file is large.
   </p>
 
   <p>
     <a href="index.html">Back to home page</a> |
-    <a href="MIR_podaci_HR_enhanced.csv" download>Download CSV</a>
+    <a href="G_podaci.csv" download>Download CSV</a>
   </p>
 
   <div id="status">Loading CSV file...</div>
@@ -194,9 +194,119 @@
   <div id="output"></div>
 
   <script>
-    const csvUrl = "MIR_podaci_HR_enhanced.csv";
+    const csvUrl = "G_podaci.csv";
+
+    const dimensionFields = [
+      ["datum", "Datum"],
+      ["pozicija", "Pozicija"],
+      ["sektor_protustranke", "Sektor protustranke"],
+      ["podskup_protustranke", "Podskup protustranke"],
+      ["instrument", "Instrument"],
+      ["namjena_kredita", "Namjena kredita"],
+      ["izvorno_dospijece", "Izvorno dospijeće"],
+      ["otkazni_rok", "Otkazni rok"],
+      ["pocetno_fiksiranje_kamatne_stope", "Početno fiksiranje kamatne stope"],
+      ["velicina_kredita", "Veličina kredita"]
+    ];
+
+    const measureFields = [
+      {
+        field: "nominalna_kamatna_stopa_novi_posao",
+        label: "Nominalna kamatna stopa – novi posao",
+        unit: "%"
+      },
+      {
+        field: "nominalna_kamatna_stopa_stanje",
+        label: "Nominalna kamatna stopa – stanje",
+        unit: "%"
+      },
+      {
+        field: "efektivna_kamatna_stopa",
+        label: "Efektivna kamatna stopa",
+        unit: "%"
+      },
+      {
+        field: "iznos_novi_posao",
+        label: "Iznos – novi posao",
+        unit: "mil. EUR"
+      },
+      {
+        field: "iznos_stanje",
+        label: "Iznos – stanje",
+        unit: "mil. EUR"
+      }
+    ];
 
     let mirChart = null;
+
+    function parseCsvNumber(rawValue) {
+      if (rawValue === null || rawValue === undefined) {
+        return null;
+      }
+
+      const text = String(rawValue).trim();
+      if (text === "") {
+        return null;
+      }
+
+      const normalized = text.includes(",")
+        ? text.replace(/\./g, "").replace(",", ".")
+        : text;
+      const value = Number(normalized);
+      return Number.isFinite(value) ? value : null;
+    }
+
+    function buildSeriesLabel(row, measureLabel) {
+      const parts = [measureLabel, row.pozicija];
+      const optionalDimensions = [
+        ["sektor_protustranke", "sektor"],
+        ["podskup_protustranke", "podskup"],
+        ["instrument", "instrument"],
+        ["namjena_kredita", "namjena"],
+        ["izvorno_dospijece", "dospijeće"],
+        ["otkazni_rok", "otkazni rok"],
+        ["pocetno_fiksiranje_kamatne_stope", "fiksiranje"],
+        ["velicina_kredita", "veličina"]
+      ];
+
+      optionalDimensions.forEach(([field, label]) => {
+        const value = row[field];
+        if (value && value !== "UKUPNO" && value !== "NIJE_PRIMJENJIVO") {
+          parts.push(label + ": " + value);
+        }
+      });
+
+      return parts.filter(Boolean).join(" | ");
+    }
+
+    function transformGData(sourceRows) {
+      const observations = [];
+
+      sourceRows.forEach(row => {
+        measureFields.forEach(measure => {
+          const value = parseCsvNumber(row[measure.field]);
+          if (value === null) {
+            return;
+          }
+
+          const observation = {
+            "Mjera": measure.label,
+            "Jedinica mjere": measure.unit,
+            "Serija": buildSeriesLabel(row, measure.label),
+            "Vrijednost": value,
+            "Izvorne tablice": row.izvorne_tablice || ""
+          };
+
+          dimensionFields.forEach(([field, label]) => {
+            observation[label] = row[field] || "";
+          });
+
+          observations.push(observation);
+        });
+      });
+
+      return observations;
+    }
 
     function parseDisplayedNumber(valueText) {
       if (!valueText) {
@@ -404,19 +514,43 @@
     Papa.parse(csvUrl, {
       download: true,
       header: true,
-      dynamicTyping: true,
+      delimiter: ";",
+      dynamicTyping: false,
       skipEmptyLines: true,
+      transformHeader: function(header) {
+        return header.replace(/^\uFEFF/, "").trim();
+      },
 
       complete: function(results) {
-        const data = results.data;
+        const requiredFields = dimensionFields.map(([field]) => field)
+          .concat(measureFields.map(measure => measure.field))
+          .concat(["izvorne_tablice"]);
+        const availableFields = results.meta.fields || [];
+        const missingFields = requiredFields.filter(field => !availableFields.includes(field));
+
+        if (missingFields.length > 0) {
+          document.getElementById("status").textContent =
+            "Error loading CSV: missing columns " + missingFields.join(", ") + ".";
+          return;
+        }
+
+        if (results.errors && results.errors.length > 0) {
+          document.getElementById("status").textContent =
+            "Error parsing CSV: " + results.errors[0].message;
+          return;
+        }
+
+        const sourceRows = results.data;
+        const data = transformGData(sourceRows);
 
         document.getElementById("status").textContent =
-          "Loaded " + data.length.toLocaleString() + " rows. Building pivot table...";
+          "Loaded " + sourceRows.length.toLocaleString() + " source rows and " +
+          data.length.toLocaleString() + " observations. Building pivot table...";
 
         $("#output").pivotUI(data, {
-          rows: ["TIME_PERIOD"],
-          cols: ["SERIES_LABEL"],
-          vals: ["OBS_VALUE"],
+          rows: ["Datum"],
+          cols: ["Serija"],
+          vals: ["Vrijednost"],
           aggregatorName: "Sum",
           rendererName: "Table",
           unusedAttrsVertical: true,
@@ -434,7 +568,8 @@
         refreshTopScrollbar();
 
         document.getElementById("status").textContent =
-          "Loaded " + data.length.toLocaleString() + " rows.";
+          "Loaded " + sourceRows.length.toLocaleString() + " source rows and " +
+          data.length.toLocaleString() + " observations.";
       },
 
       error: function(error) {
